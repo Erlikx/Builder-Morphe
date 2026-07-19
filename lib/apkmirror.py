@@ -62,7 +62,6 @@ async def resolve_list_url(page, app_config, version):
     for elem in elements:
         href = await elem.get_attribute("href")
         if href and f"-{version_slug}-" in href:
-            # Tam URL döndür
             return f"https://www.apkmirror.com{href}"
 
     raise Exception(f"No APKMirror release page found for version {version}")
@@ -142,7 +141,6 @@ async def download_apk(version, app_name="youtube", force_build=None):
             if not variant_url:
                 raise Exception("No matching variant found on APKMirror")
 
-            # Tam URL oluştur
             if not variant_url.startswith("http"):
                 variant_url = f"https://www.apkmirror.com{variant_url}"
             logger.info(f"➡️ VARIANT: {variant_url}")
@@ -194,7 +192,6 @@ async def get_latest_listing(app_name):
             logger.info(f"🌐 LISTING: {listing_url}")
             await page.goto(listing_url, wait_until="domcontentloaded")
 
-            # Sayfadaki tüm release linklerini topla
             release_links = await page.evaluate('''
                 () => {
                     const links = document.querySelectorAll('a[href*="-release/"]');
@@ -203,13 +200,19 @@ async def get_latest_listing(app_name):
             ''')
 
             if not release_links:
+                rows = await page.query_selector_all(".table-row")
+                for row in rows:
+                    link = await row.query_selector("a[href*='-release/']")
+                    if link:
+                        href = await link.get_attribute("href")
+                        if href:
+                            release_links.append(f"https://www.apkmirror.com{href}")
+
+            if not release_links:
+                logger.warning(f"No release links found for {app_name}")
                 return None
 
-            # En son sürümü bul (en yüksek version string)
-            # Basitçe ilk linki al (genelde en son)
             latest_href = release_links[0]
-
-            # Sürüm numarasını çıkarmak için
             version_match = re.search(r'/(\d+(?:\.\d+)+)/', latest_href)
             if version_match:
                 version = version_match.group(1)
@@ -218,7 +221,7 @@ async def get_latest_listing(app_name):
                 return None
 
         except Exception as e:
-            logger.error(f"❌ ERROR: {e}")
+            logger.error(f"❌ ERROR in get_latest_listing: {e}")
             raise
         finally:
             await browser.close()
