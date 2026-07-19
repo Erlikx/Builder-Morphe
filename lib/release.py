@@ -114,4 +114,4 @@ def upload_microg_once(release):
             logger.info("✅ MicroG already up to date on this release, skipping upload")
             return
 
-    upload_with_replace(release, new_path)    upload_with_replace(release, new_path)
+    upload_with_replace(release, new_path)
