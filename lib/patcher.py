@@ -23,8 +23,12 @@ def patch_apk(desktop, patches, apk, extra_args="", arch="arm64-v8a"):
     if arch:
         cmd.extend(["--striplibs", arch])
 
+    use_custom_keystore = False
     if ks_path and os.path.exists(ks_path) and ks_password and ks_alias and key_password:
+        use_custom_keystore = True
         logger.info("🔑 Custom keystore detected! Signing with your private key...")
+        logger.info(f"   📂 Keystore: {ks_path}")
+        logger.info(f"   🔏 Alias: {ks_alias}")
         cmd.extend([
             "--keystore", ks_path,
             "--keystore-password", ks_password,
@@ -39,12 +43,26 @@ def patch_apk(desktop, patches, apk, extra_args="", arch="arm64-v8a"):
 
     cmd.append(apk)
 
-    logger.info(f"🖥️ EXECUTING COMMAND: {' '.join(cmd)}")
+    # Komut log'unda şifreleri gizle (*** ile değiştir)
+    safe_cmd = []
+    for arg in cmd:
+        if arg in (ks_password, key_password) and use_custom_keystore:
+            safe_cmd.append("***")
+        else:
+            safe_cmd.append(arg)
+    logger.info(f"🖥️ EXECUTING COMMAND: {' '.join(safe_cmd)}")
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         output = result.stdout + result.stderr
         logger.info(output)
+
+        # İmzalama ile ilgili mesajları yakala
+        if use_custom_keystore:
+            if "Signing" in output or "signed" in output.lower():
+                logger.info("✅ APK successfully signed with custom keystore!")
+            else:
+                logger.warning("⚠️ Custom keystore used but signing status not confirmed in output.")
 
         if "Applying 0 patches" in output:
             raise Exception("Applying 0 patches. Uyumlu yama bulunamadı veya sürüm desteklenmiyor.")
