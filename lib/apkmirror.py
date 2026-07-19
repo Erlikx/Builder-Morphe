@@ -62,7 +62,8 @@ async def resolve_list_url(page, app_config, version):
     for elem in elements:
         href = await elem.get_attribute("href")
         if href and f"-{version_slug}-" in href:
-            return href
+            # Tam URL döndür
+            return f"https://www.apkmirror.com{href}"
 
     raise Exception(f"No APKMirror release page found for version {version}")
 
@@ -141,7 +142,11 @@ async def download_apk(version, app_name="youtube", force_build=None):
             if not variant_url:
                 raise Exception("No matching variant found on APKMirror")
 
+            # Tam URL oluştur
+            if not variant_url.startswith("http"):
+                variant_url = f"https://www.apkmirror.com{variant_url}"
             logger.info(f"➡️ VARIANT: {variant_url}")
+
             await page.goto(variant_url, wait_until="domcontentloaded")
             await page.wait_for_selector("a.downloadButton", timeout=15000)
 
@@ -189,18 +194,29 @@ async def get_latest_listing(app_name):
             logger.info(f"🌐 LISTING: {listing_url}")
             await page.goto(listing_url, wait_until="domcontentloaded")
 
-            link = await page.query_selector("a[href*='-release/']")
-            if not link:
+            # Sayfadaki tüm release linklerini topla
+            release_links = await page.evaluate('''
+                () => {
+                    const links = document.querySelectorAll('a[href*="-release/"]');
+                    return Array.from(links).map(a => a.href);
+                }
+            ''')
+
+            if not release_links:
                 return None
-            href = await link.get_attribute("href")
-            row = await link.evaluate_handle("el => el.closest('div, li, tr')")
-            if row:
-                text = await row.inner_text()
+
+            # En son sürümü bul (en yüksek version string)
+            # Basitçe ilk linki al (genelde en son)
+            latest_href = release_links[0]
+
+            # Sürüm numarasını çıkarmak için
+            version_match = re.search(r'/(\d+(?:\.\d+)+)/', latest_href)
+            if version_match:
+                version = version_match.group(1)
+                return {"version": version, "href": latest_href}
             else:
-                text = await link.inner_text()
-            version_match = re.search(r'\d+(?:\.\d+)+', text)
-            version = version_match.group(0) if version_match else None
-            return {"version": version, "href": href}
+                return None
+
         except Exception as e:
             logger.error(f"❌ ERROR: {e}")
             raise
