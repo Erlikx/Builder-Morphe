@@ -14,7 +14,6 @@ def patch_apk(desktop, patches, apk, extra_args="", arch="arm64-v8a"):
     ks_alias = os.environ.get("KS_ALIAS")
     key_password = os.environ.get("KEY_PASSWORD")
 
-    # Komutu liste olarak oluştur (shell=False ile çalıştırmak için)
     cmd = [
         "java", "-jar", desktop,
         "patch",
@@ -35,16 +34,14 @@ def patch_apk(desktop, patches, apk, extra_args="", arch="arm64-v8a"):
     else:
         logger.info("⚠️ Custom keystore credentials missing or file not found. Falling back to default Morphe testkey.")
 
-    # Extra argümanları (örn. --disable "Dynamic color") doğru şekilde parse et
     if extra_args and extra_args.strip():
         cmd.extend(shlex.split(extra_args))
 
-    cmd.append(apk)  # APK dosyası en sona eklenir
+    cmd.append(apk)
 
     logger.info(f"🖥️ EXECUTING COMMAND: {' '.join(cmd)}")
 
     try:
-        # shell=False ile liste halinde çalıştır
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         output = result.stdout + result.stderr
         logger.info(output)
