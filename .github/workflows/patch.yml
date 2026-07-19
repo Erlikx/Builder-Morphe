@@ -1,55 +1,53 @@
-name: Patch and Release APKs
+name: Patch APKs
 
 on:
-  schedule:
-    - cron: '0 */6 * * *'
   workflow_dispatch:
+  schedule:
+    - cron: '0 0 * * *' # Her gün gece yarısı otomatik çalışır
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Setup Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
+          python-version: '3.11'
+          cache: 'pip'
 
-      - name: Install Python dependencies
+      - name: Install dependencies
         run: |
           pip install -r requirements.txt
-          playwright install chromium
+          python -m playwright install chromium --with-deps
 
       - name: Decode Keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 --decode > Panemi.keystore
+          if [ ! -z "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > Panemi.keystore
+          fi
 
-      - name: Run patcher
+      - name: Run Python Patcher
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
           KS_PATH: Panemi.keystore
-          KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KS_PASSWORD: ${{ secrets.KS_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KS_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: python main.py
-      - name: Run patcher
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          KS_PATH: Panemi.keystore
-          KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: python main.py
+
+      - name: Cleanup old workflow runs
+        uses: Mattraks/delete-workflow-runs@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          repository: ${{ github.repository }}
+          retain_days: 0
+          keep_minimum_runs: 1
