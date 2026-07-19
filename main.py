@@ -1,4 +1,5 @@
 import os
+import sys
 import re
 import time
 import random
@@ -8,6 +9,9 @@ from pathlib import Path
 from datetime import datetime
 from playwright.sync_api import sync_playwright
 from playwright_stealth import stealth_sync
+
+# Anlık log için
+sys.stdout.reconfigure(line_buffering=True)
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN")
 REPO = os.environ.get("GITHUB_REPOSITORY", "Erlikx/Builder-Morphe")
@@ -55,22 +59,19 @@ def get_github_headers():
 
 def download_asset(owner, repo, match_str, prerelease=False):
     url = f"https://api.github.com/repos/{owner}/{repo}/releases"
-    if not prerelease:
-        url += "/latest"
+    if not prerelease: url += "/latest"
     res = requests.get(url, headers=get_github_headers())
     res.raise_for_status()
     data = res.json()
     release = next((r for r in data if r.get("prerelease") == True), data[0]) if prerelease and isinstance(data, list) else data
     asset = next((a for a in release.get("assets", []) if match_str in a["name"]), None)
-    if not asset:
-        raise Exception(f"Asset bulunamadı: {match_str}")
+    if not asset: raise Exception(f"Asset bulunamadı: {match_str}")
     out_path = Path(asset["name"])
     if not out_path.exists():
         r = requests.get(asset["browser_download_url"], stream=True)
         r.raise_for_status()
         with open(out_path, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
+            for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
     return {"path": out_path, "body": release.get("body", ""), "tag": release.get("tag_name", "")}
 
 def get_supported_version(desktop_jar, patches_mpp, pkg_name):
@@ -81,57 +82,48 @@ def get_supported_version(desktop_jar, patches_mpp, pkg_name):
         if versions:
             versions = sorted(list(set(versions)), key=lambda s: [int(u) for u in s.split('.') if u.isdigit()], reverse=True)
             return versions[0]
-    except:
-        return None
+    except: return None
 
 def download_apk(app_name, config, out_dir, target_version=None):
     base_url = config["am_url"]
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
-        context = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0 Safari/537.36", accept_downloads=True)
-        page = context.new_page()
+        page = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36").new_page()
         stealth_sync(page)
         try:
             release_url = None
             if target_version:
-                version_slug = target_version.replace(".", "-")
+                v_slug = target_version.replace(".", "-")
                 name_part = config.get("releaseSlug", base_url.rstrip('/').split('/')[-1])
-                candidates = [f"{base_url}{name_part}-{version_slug}-{s}/" for s in ["release", "release-0-release", "beta-0-release", "beta-1-release"]]
-                for c in candidates:
+                for c in [f"{base_url}{name_part}-{v_slug}-{s}/" for s in ["release", "release-0-release", "beta-0-release", "beta-1-release"]]:
                     try:
                         res = page.goto(c, wait_until="domcontentloaded", timeout=15000)
                         if res and res.status != 404 and page.locator(".table-row").count() > 0:
-                            release_url = c
-                            break
+                            release_url = c; break
                     except: continue
             if not release_url:
-                page.goto(base_url, wait_until="domcontentloaded", timeout=30000)
-                latest_release = page.locator("a[href*='-release/']").first
-                release_url = f"https://www.apkmirror.com{latest_release.get_attribute('href')}"
-                page.goto(release_url, wait_until="domcontentloaded", timeout=30000)
+                page.goto(base_url, wait_until="domcontentloaded", timeout=45000)
+                latest = page.locator("a[href*='-release/']").first
+                release_url = f"https://www.apkmirror.com{latest.get_attribute('href')}"
+                page.goto(release_url, wait_until="domcontentloaded", timeout=45000)
             
-            page.wait_for_selector(".table-row", timeout=15000)
-            rows = page.locator(".table-row").all()
-            variant_url = None
-            for row in rows:
-                text = row.inner_text().lower()
-                if any(x in text for x in ["arm64-v8a", "universal", "noarch"]):
-                    link = row.locator("a.accent_color").first
-                    if link:
-                        variant_url = f"https://www.apkmirror.com{link.get_attribute('href')}"
-                        break
-            if not variant_url: raise Exception("Varyant bulunamadı.")
-            page.goto(variant_url, wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_selector("a.downloadButton", timeout=15000)
-            page.goto(f"https://www.apkmirror.com{page.locator('a.downloadButton').get_attribute('href')}", wait_until="domcontentloaded", timeout=30000)
-            with page.expect_download(timeout=60000) as dl:
-                fallback = page.locator("#download-link")
-                if fallback.is_visible(): fallback.click()
-            file_path = out_dir / f"{app_name}-{dl.value.suggested_filename}"
-            dl.value.save_as(file_path)
-            return file_path
-        finally:
-            browser.close()
+            page.wait_for_selector(".table-row", timeout=20000)
+            for row in page.locator(".table-row").all():
+                if any(x in row.inner_text().lower() for x in ["arm64-v8a", "universal", "noarch"]):
+                    page.goto(f"https://www.apkmirror.com{row.locator('a.accent_color').first.get_attribute('href')}", wait_until="domcontentloaded")
+                    break
+            
+            page.wait_for_selector("a.downloadButton", timeout=20000)
+            page.goto(f"https://www.apkmirror.com{page.locator('a.downloadButton').get_attribute('href')}", wait_until="domcontentloaded")
+            page.wait_for_selector("#download-link", timeout=20000)
+            direct_link = page.locator("#download-link").get_attribute("href")
+            r = requests.get(direct_link, headers={"User-Agent": "Mozilla/5.0"}, stream=True)
+            r.raise_for_status()
+            path = out_dir / f"{app_name}.apk"
+            with open(path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
+            return path
+        finally: browser.close()
 
 def patch_apk(desktop_jar, patches_mpp, apk_path, app_name):
     config = APPS_CONFIG[app_name]
