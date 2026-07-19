@@ -116,7 +116,13 @@ def download_apk(app_name, config, out_dir, target_version=None):
             page.wait_for_selector("a.downloadButton", timeout=20000)
             page.goto(f"https://www.apkmirror.com{page.locator('a.downloadButton').get_attribute('href')}", wait_until="domcontentloaded")
             page.wait_for_selector("#download-link", timeout=20000)
+            
             direct_link = page.locator("#download-link").get_attribute("href")
+            
+            # Domain kontrolü: Eğer link "http" ile başlamıyorsa, domain ekle
+            if direct_link.startswith("/"):
+                direct_link = f"https://www.apkmirror.com{direct_link}"
+                
             r = requests.get(direct_link, headers={"User-Agent": "Mozilla/5.0"}, stream=True)
             r.raise_for_status()
             path = out_dir / f"{app_name}.apk"
