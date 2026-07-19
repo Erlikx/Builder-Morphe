@@ -29,10 +29,8 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium
 
-      # Sadece main.py çalıştırılmalı
       - name: Run patcher
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          # İsteğe bağlı: TARGET_APP: "youtube"
         run: python main.py
