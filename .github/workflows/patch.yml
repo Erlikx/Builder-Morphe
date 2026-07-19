@@ -3,7 +3,7 @@ name: Patch APKs
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *' # Her gün gece yarısı otomatik çalışır
+    - cron: '0 0 * * *'
 
 jobs:
   build:
@@ -42,7 +42,7 @@ jobs:
           KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KS_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: python main.py
+        run: python -u main.py
 
       - name: Cleanup old workflow runs
         uses: Mattraks/delete-workflow-runs@v2
