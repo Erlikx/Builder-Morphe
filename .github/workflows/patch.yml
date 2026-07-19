@@ -2,8 +2,8 @@ name: Patch and Release APKs
 
 on:
   schedule:
-    - cron: '0 */6 * * *'   # Her 6 saatte bir
-  workflow_dispatch:         # Manuel tetikleme
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
 
 jobs:
   build:
@@ -29,34 +29,10 @@ jobs:
           pip install -r requirements.txt
           playwright install chromium
 
+      # Sadece main.py çalıştırılmalı
       - name: Run patcher
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           # İsteğe bağlı: TARGET_APP: "youtube"
         run: python main.py
-      - name: Decode keystore
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > Panemi.keystore
-
-      - name: Run patcher
-        run: python patcher.py
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          TARGET_APP: all
-          KS_PATH: Panemi.keystore
-          KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-
-      - name: Generate provenance attestation
-        uses: actions/attest@v4
-        with:
-          subject-path: '*.apk'
-          exclude-path: 'microg*.apk'
-
-      - name: Cleanup old workflow runs
-        uses: Mattraks/delete-workflow-runs@v2
-        with:
-          retain_days: 0
-          keep_minimum_runs: 1
