@@ -86,9 +86,14 @@ def get_supported_version(desktop_jar, patches_mpp, pkg_name):
 
 def download_apk(app_name, config, out_dir, target_version=None):
     base_url = config["am_url"]
+    print(f"[{app_name}] Hedeflenen yama sürümü: {target_version}")
+    
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
-        page = browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36").new_page()
+        page = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36",
+            accept_downloads=True
+        ).new_page()
         stealth_sync(page)
         try:
             release_url = None
@@ -99,9 +104,14 @@ def download_apk(app_name, config, out_dir, target_version=None):
                     try:
                         res = page.goto(c, wait_until="domcontentloaded", timeout=15000)
                         if res and res.status != 404 and page.locator(".table-row").count() > 0:
-                            release_url = c; break
+                            release_url = c
+                            print(f"[{app_name}] Doğru sürüm bulundu: {release_url}")
+                            break
                     except: continue
+            
+            # Eğer spesifik sürüm bulunamazsa en son sürüme geçiş yapar
             if not release_url:
+                print(f"[{app_name}] Uyarı: Hedeflenen sürüm URL'si bulunamadı, en son sürüme gidiliyor!")
                 page.goto(base_url, wait_until="domcontentloaded", timeout=45000)
                 latest = page.locator("a[href*='-release/']").first
                 release_url = f"https://www.apkmirror.com{latest.get_attribute('href')}"
@@ -110,26 +120,33 @@ def download_apk(app_name, config, out_dir, target_version=None):
             page.wait_for_selector(".table-row", timeout=20000)
             for row in page.locator(".table-row").all():
                 if any(x in row.inner_text().lower() for x in ["arm64-v8a", "universal", "noarch"]):
-                    page.goto(f"https://www.apkmirror.com{row.locator('a.accent_color').first.get_attribute('href')}", wait_until="domcontentloaded")
+                    variant_url = f"https://www.apkmirror.com{row.locator('a.accent_color').first.get_attribute('href')}"
+                    page.goto(variant_url, wait_until="domcontentloaded")
                     break
             
             page.wait_for_selector("a.downloadButton", timeout=20000)
-            page.goto(f"https://www.apkmirror.com{page.locator('a.downloadButton').get_attribute('href')}", wait_until="domcontentloaded")
+            download_page_url = f"https://www.apkmirror.com{page.locator('a.downloadButton').get_attribute('href')}"
+            page.goto(download_page_url, wait_until="domcontentloaded")
+            
             page.wait_for_selector("#download-link", timeout=20000)
             
-            direct_link = page.locator("#download-link").get_attribute("href")
+            print(f"[{app_name}] APK indiriliyor (Bot koruması atlatılıyor)...")
             
-            # Domain kontrolü: Eğer link "http" ile başlamıyorsa, domain ekle
-            if direct_link.startswith("/"):
-                direct_link = f"https://www.apkmirror.com{direct_link}"
+            # Requests yerine indirme işlemini Playwright'ın kendisine devrediyoruz
+            with page.expect_download(timeout=120000) as download_info:
+                page.locator("#download-link").click()
                 
-            r = requests.get(direct_link, headers={"User-Agent": "Mozilla/5.0"}, stream=True)
-            r.raise_for_status()
+            download = download_info.value
             path = out_dir / f"{app_name}.apk"
-            with open(path, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
+            download.save_as(path)
+            
+            print(f"[{app_name}] İndirme başarılı: {path}")
             return path
-        finally: browser.close()
+        except Exception as e:
+            print(f"[{app_name}] İndirme sırasında bir hata oluştu: {e}")
+            return None
+        finally: 
+            browser.close()
 
 def patch_apk(desktop_jar, patches_mpp, apk_path, app_name):
     config = APPS_CONFIG[app_name]
