@@ -1,49 +1,129 @@
 import os
-import subprocess
-import shlex
+import time
+import random
+import requests
+from pathlib import Path
 
-def patch_apk(desktop: str, patches: str, apk: str, extra_args: str = "", arch: str = "arm64-v8a") -> str:
-    ks_path = os.environ.get("KS_PATH")
-    ks_password = os.environ.get("KS_PASSWORD")
-    ks_alias = os.environ.get("KS_ALIAS")
-    key_password = os.environ.get("KEY_PASSWORD")
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 
-    cmd = ["java", "-jar", desktop, "patch", "--patches", patches]
-    
-    if arch:
-        cmd.extend(["--striplibs", arch])
-        
-    if ks_path and os.path.exists(ks_path) and ks_password and ks_alias and key_password:
-        cmd.extend([
-            "--keystore", ks_path,
-            "--keystore-password", ks_password,
-            "--keystore-entry-alias", ks_alias,
-            "--keystore-entry-password", key_password
-        ])
-        
-    if extra_args.strip():
-        cmd.extend(shlex.split(extra_args.strip()))
-        
-    cmd.append(apk)
+HEADERS = {
+    "User-Agent": "python-morphe",
+    "Accept": "application/vnd.github+json",
+    "Authorization": f"Bearer {GITHUB_TOKEN}",
+}
 
-    try:
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        output = res.stdout + "\n" + res.stderr
-        if "Applying 0 patches" in output:
-            raise Exception("Applying 0 patches")
-        
-        import re
-        match = re.search(r'(?i)INFO:\s+Saved to\s+([^\r\n]+\.apk)', output)
-        if not match:
-            raise Exception("Cannot find patched APK path in output")
-        
-        patched_apk = match.group(1).strip()
-        if not os.path.exists(patched_apk):
-            raise Exception("Patched APK does not exist")
-            
-        return patched_apk
-    except subprocess.CalledProcessError as e:
-        output = e.stdout + "\n" + e.stderr
-        if "Applying 0 patches" in output:
-            raise Exception("Applying 0 patches")
-        raise Exception(f"Patch failed: {e.stderr}")
+
+def _jitter(base: float) -> float:
+    return base + random.uniform(0, 0.3)
+
+
+def _with_retry(fn, retries=5, base_delay=1.0):
+    last_err = None
+    for i in range(retries):
+        try:
+            return fn()
+        except Exception as e:
+            last_err = e
+            delay = _jitter(base_delay * (2 ** i))
+            print(f"  🔁 Retry {i+1}/{retries} in {delay:.1f}s – {e}")
+            time.sleep(delay)
+    raise last_err
+
+
+def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) -> dict:
+    if prerelease:
+        url = f"https://api.github.com/repos/{owner}/{repo}/releases"
+    else:
+        url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+
+    def _do():
+        resp = requests.get(url, headers=HEADERS, timeout=30)
+        resp.raise_for_status()
+        data = resp.json()
+        if prerelease:
+            if not isinstance(data, list) or not data:
+                raise RuntimeError("No releases found")
+            return data[0]
+        return data
+
+    return _with_retry(_do)
+
+
+def download_file(url: str, dest: str, expected_size: int | None = None):
+    dest_path = Path(dest)
+    temp_path = dest_path.with_suffix(dest_path.suffix + ".part")
+
+    downloaded = 0
+    headers = {"User-Agent": "python-morphe", "Accept": "*/*"}
+
+    if temp_path.exists():
+        downloaded = temp_path.stat().st_size
+        headers["Range"] = f"bytes={downloaded}-"
+        print(f"  ↩️  Resuming at {downloaded} bytes")
+
+    with requests.get(url, headers=headers, stream=True, timeout=60) as resp:
+        resp.raise_for_status()
+
+        # Server may ignore the Range header and send the whole file back
+        # (status 200) instead of just the remainder (status 206). If we
+        # blindly append in that case the result is corrupted.
+        if downloaded > 0 and resp.status_code != 206:
+            print("  ⚠️  Server did not honor Range request, restarting download")
+            downloaded = 0
+            mode = "wb"
+        else:
+            mode = "ab" if downloaded > 0 else "wb"
+
+        with open(temp_path, mode) as f:
+            for chunk in resp.iter_content(chunk_size=1024 * 256):
+                f.write(chunk)
+                downloaded += len(chunk)
+
+    if expected_size and downloaded != expected_size:
+        temp_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Size mismatch: got {downloaded}, expected {expected_size}")
+
+    temp_path.rename(dest_path)
+    return str(dest_path)
+
+
+def download_latest_github_asset(owner: str, repo: str, match_fn, prerelease: bool = False) -> dict:
+    print(f"\n  📦 Fetching release: {owner}/{repo}")
+    release = fetch_latest_release(owner, repo, prerelease)
+
+    assets = release.get("assets", [])
+    if not assets:
+        raise RuntimeError(f"{owner}/{repo} has no assets")
+
+    asset = next((a for a in assets if match_fn(a["name"])), None)
+    if not asset:
+        raise RuntimeError(f"No matching asset found in {owner}/{repo}")
+
+    print(f"  🎯 Selected: {asset['name']}")
+
+    dest = Path(asset["name"])
+    if dest.exists():
+        size = dest.stat().st_size
+        expected = asset.get("size")
+        if size < 1024 or (expected and size != expected):
+            print("  🧹 Removing stale/corrupt cache")
+            dest.unlink()
+        else:
+            print(f"  ⚡ Using cache: {asset['name']}")
+            return {
+                "name": asset["name"],
+                "body": release.get("body", ""),
+                "tag":  release.get("tag_name", ""),
+            }
+
+    def _do():
+        download_file(asset["browser_download_url"], asset["name"], asset["size"])
+
+    _with_retry(_do)
+    print(f"  ✅ Done: {asset['name']}")
+
+    return {
+        "name": asset["name"],
+        "body": release.get("body", ""),
+        "tag":  release.get("tag_name", ""),
+    }
