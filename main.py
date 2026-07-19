@@ -74,23 +74,26 @@ def download_asset(owner, repo, match_str, prerelease=False):
             for chunk in r.iter_content(chunk_size=8192): f.write(chunk)
     return {"path": out_path, "body": release.get("body", ""), "tag": release.get("tag_name", "")}
 
-def get_supported_version(desktop_jar, patches_mpp, pkg_name):
+def get_supported_versions(desktop_jar, patches_mpp, pkg_name):
+    """Artık tek bir sürüm değil, desteklenen TÜM sürümleri liste olarak döndürür."""
     try:
         cmd = ["java", "-jar", str(desktop_jar), "list-versions", "-f", pkg_name, "--patches", str(patches_mpp), "--include-experimental"]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
         versions = [m.group(1) for line in res.stdout.splitlines() for m in [re.search(r'(\d+(?:\.\d+)+)', line)] if m]
         if versions:
-            versions = sorted(list(set(versions)), key=lambda s: [int(u) for u in s.split('.') if u.isdigit()], reverse=True)
-            return versions[0]
-    except: return None
+            # Büyükten küçüğe sıralı tüm sürümleri döndür
+            return sorted(list(set(versions)), key=lambda s: [int(u) for u in s.split('.') if u.isdigit()], reverse=True)
+    except: pass
+    return []
 
-def download_apk(app_name, config, out_dir, target_version=None):
+def download_apk(app_name, config, out_dir, target_versions):
     base_url = config["am_url"]
     
-    if not target_version:
-        print(f"[{app_name}] ⚠️ Uyarı: Yama dosyası bu uygulama için belirli bir sürüm önermedi!")
+    if not target_versions:
+        print(f"[{app_name}] ⚠️ Uyarı: Yama dosyası bu uygulama için sürüm önermedi, en son sürüm deneniyor.")
+        target_versions = [None]
     else:
-        print(f"[{app_name}] 🎯 Hedeflenen yama sürümü: {target_version}")
+        print(f"[{app_name}] 🎯 Desteklenen yama sürümleri sırayla denenecek: {target_versions}")
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
@@ -101,26 +104,33 @@ def download_apk(app_name, config, out_dir, target_version=None):
         stealth_sync(page)
         try:
             release_url = None
-            if target_version:
-                v_slug = target_version.replace(".", "-")
-                name_part = config.get("releaseSlug", base_url.rstrip('/').split('/')[-1])
-                for c in [f"{base_url}{name_part}-{v_slug}-{s}/" for s in ["release", "release-0-release", "beta-0-release", "beta-1-release", "alpha-0-release"]]:
-                    try:
-                        res = page.goto(c, wait_until="domcontentloaded", timeout=15000)
-                        if res and res.status != 404 and page.locator(".table-row").count() > 0:
-                            release_url = c
-                            print(f"[{app_name}] Doğru sürüm bulundu: {release_url}")
-                            break
-                    except: continue
-                
-                if not release_url:
-                    print(f"[{app_name}] ❌ HATA: {target_version} sürümü APKMirror'da bulunamadı veya link formatı farklı. Yamalama iptal ediliyor.")
-                    return None
-            else:
-                page.goto(base_url, wait_until="domcontentloaded", timeout=45000)
-                latest = page.locator("a[href*='-release/']").first
-                release_url = f"https://www.apkmirror.com{latest.get_attribute('href')}"
-                page.goto(release_url, wait_until="domcontentloaded", timeout=45000)
+            
+            # Sürümleri sırayla dene (İlk bulduğunu indirecek)
+            for target_version in target_versions:
+                if target_version:
+                    v_slug = target_version.replace(".", "-")
+                    name_part = config.get("releaseSlug", base_url.rstrip('/').split('/')[-1])
+                    for c in [f"{base_url}{name_part}-{v_slug}-{s}/" for s in ["release", "release-0-release", "beta-0-release", "beta-1-release", "alpha-0-release"]]:
+                        try:
+                            res = page.goto(c, wait_until="domcontentloaded", timeout=10000)
+                            if res and res.status != 404 and page.locator(".table-row").count() > 0:
+                                release_url = c
+                                print(f"[{app_name}] ✅ Uygun sürüm bulundu: {target_version} -> {release_url}")
+                                break
+                        except: continue
+                    if release_url:
+                        break # Sürüm bulundu, döngüden çık
+                else:
+                    # Sürüm listesi boşsa en son sürüme git
+                    page.goto(base_url, wait_until="domcontentloaded", timeout=45000)
+                    latest = page.locator("a[href*='-release/']").first
+                    release_url = f"https://www.apkmirror.com{latest.get_attribute('href')}"
+                    page.goto(release_url, wait_until="domcontentloaded", timeout=45000)
+                    break
+
+            if not release_url:
+                print(f"[{app_name}] ❌ HATA: Denenen hiçbir sürüm APKMirror'da bulunamadı. Bu uygulama atlanıyor.")
+                return None
             
             page.wait_for_selector(".table-row", timeout=20000)
             for row in page.locator(".table-row").all():
@@ -141,7 +151,6 @@ def download_apk(app_name, config, out_dir, target_version=None):
                 
             download = download_info.value
             
-            # --- Orijinal uzantıyı (.apkm, .apks veya .apk) koru ---
             original_ext = Path(download.suggested_filename).suffix
             if not original_ext:
                 original_ext = ".apk"
@@ -214,8 +223,11 @@ def main():
         config = APPS_CONFIG[app]
         mpp = patches[config["patchSource"]]["path"]
         
-        target_version = get_supported_version(desktop, mpp, config["pkg"])
-        raw = download_apk(app, config, OUT_DIR, target_version)
+        # Desteklenen TÜM sürümlerin listesini alıyoruz
+        target_versions = get_supported_versions(desktop, mpp, config["pkg"])
+        
+        # Listeyi sırayla deneyerek indir
+        raw = download_apk(app, config, OUT_DIR, target_versions)
         
         if raw:
             patched = patch_apk(desktop, mpp, raw, app)
