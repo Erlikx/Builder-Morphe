@@ -18,7 +18,6 @@ DISPLAY_NAMES = {
     "brave": "Brave"
 }
 
-# Niagara Launcher artık APKMirror üzerinden indirilecekler listesinde
 APKMIRROR_APPS = ["youtube", "youtube-music", "reddit", "twitter", "niagara-launcher"]
 
 APPS_CONFIG = {
@@ -40,153 +39,80 @@ APPS_CONFIG = {
 
 PROCESS_ORDER = ["youtube", "youtube-music", "reddit", "twitter", "instagram", "github", "niagara-launcher", "pydroid3", "smart-launcher", "wps-office", "gboard", "speedtest", "solid-explorer", "brave"]
 
-def process_app(app_key: str, desktop: str, patches: str, patch_name: str, patch_tag: str):
+def process_app(app_key, desktop, patches, patch_name, patch_tag):
     config = APPS_CONFIG[app_key]
-    print("\n" + "="*55)
-    print(f"🚀 İŞLENİYOR: {config['name'].upper()}")
-    print(f"🧩 Kullanılan Yama: {patch_name.capitalize()} (Sürüm: {patch_tag})")
+    print(f"\n🚀 İŞLENİYOR: {config['name'].upper()} | Yama: {patch_name} ({patch_tag})")
     
     is_apkmirror = config["name"] in APKMIRROR_APPS
     selected_version = config.get("forceVersion")
     
     if not selected_version:
-        print(f"🔍 {patch_name.capitalize()} yamasına en uygun uygulama sürümü taranıyor...")
+        print("🔍 Uygulama sürümü taranıyor...")
         try:
-            out = subprocess.run(["java", "-jar", desktop, "list-versions", "-f", config["pkg"], f"--patches={patches}", "--include-experimental"], capture_output=True, text=True, check=True)
+            out = subprocess.run(["java", "-jar", desktop, "list-versions", "-f", config["pkg"], f"--patches={patches}"], capture_output=True, text=True, check=True)
             versions = extract_youtube_versions(out.stdout)
-            if versions:
-                selected_version = pick_latest_version(versions)
-        except Exception as e:
-            print(f"⚠️ Sürüm listesi Java'dan alınamadı: {e}")
+            if versions: selected_version = pick_latest_version(versions)
+        except Exception as e: print(f"⚠️ Sürüm listesi Java'dan alınamadı: {e}")
             
     if not selected_version:
-        if not is_apkmirror:
-            selected_version = "latest"
-            print("📌 En güncel sürüm için 'latest' tag'i kullanılacak.")
-        else:
-            print(f"🌐 APKMirror üzerinden en son yayınlanan sürüm aranıyor...")
+        if is_apkmirror:
+            print("🌐 APKMirror taraması yapılıyor...")
             latest = apkmirror.get_latest_listing(config["name"])
-            if latest:
-                selected_version = latest["version"]
+            if latest: selected_version = latest["version"]
+        else: selected_version = "latest"
                 
-    if not selected_version:
-        raise Exception("Sürüm numarası belirlenemediği için iptal edildi.")
+    if not selected_version: raise Exception("Sürüm numarası belirlenemedi.")
+    print(f"🎯 Hedef Sürüm: {selected_version}")
 
-    print(f"🎯 Hedeflenen Uygulama Sürümü: {selected_version}")
+    print("📥 İndiriliyor...")
+    apk_path = apkmirror.download_apk(selected_version, config["name"], config.get("forceBuild")) if is_apkmirror else githubdl.download_apk(selected_version, config["name"])
+    
+    if not os.path.exists(apk_path) or os.path.getsize(apk_path) < 1024:
+        raise Exception("APK dosyası bozuk veya eksik indi!")
 
-    if is_apkmirror:
-        print(f"📥 APKMirror.com üzerinden indiriliyor (Anti-Bot Atlatılıyor)...")
-        apk_path = apkmirror.download_apk(selected_version, config["name"], config.get("forceBuild"))
-    else:
-        print(f"📥 GitHub üzerinden indiriliyor...")
-        apk_path = githubdl.download_apk(selected_version, config["name"])
-        
-    print(f"✅ İndirme tamamlandı: {os.path.basename(apk_path)}")
-    print("⚙️ Yamalama işlemi başlatılıyor (Morphe CLI)...")
+    print("⚙️ Yamalama (Morphe CLI)...")
+    args = []
+    for ex in config.get("exclude", []): args.extend(["--disable", f'"{ex}"'])
+    for en in config.get("enable", []): args.extend(["--enable", f'"{en}"'])
     
-    args_list = []
-    for ex in config.get("exclude", []):
-        args_list.extend(["--disable", f'"{ex}"'])
-    for en in config.get("enable", []):
-        args_list.extend(["--enable", f'"{en}"'])
-    extra_args = " ".join(args_list)
+    patched_path = patch_apk(desktop, patches, apk_path, " ".join(args), config["arch"])
     
-    patched_path = patch_apk(desktop, patches, apk_path, extra_args, config["arch"])
-    if not os.path.exists(patched_path):
-        print("❌ Yamalanan dosya oluşturulamadı.")
-        return None
-        
     display_name = DISPLAY_NAMES.get(config["name"], config["name"])
-    final_name = f"{display_name}-{selected_version}.apk"
-    final_path = os.path.abspath(final_name)
+    final_path = os.path.abspath(f"{display_name}-{selected_version}.apk")
     shutil.copyfile(patched_path, final_path)
-    
-    print(f"🎉 İşlem Başarılı! Çıktı: {final_name}")
-    print("="*55)
-    
-    return {
-        "appName": config["name"],
-        "displayName": display_name,
-        "icon": config.get("icon", ""),
-        "path": final_path
-    }
+    print(f"🎉 Başarılı: {final_path}")
+    return {"appName": config["name"], "displayName": display_name, "icon": config.get("icon", ""), "path": final_path}
 
 def main():
-    print("📦 Morphe-desktop aracı indiriliyor...")
-    desktop_obj = download_latest_github_asset("MorpheApp", "morphe-desktop", lambda n: "desktop" in n and n.endswith(".jar"))
-    desktop = desktop_obj["name"]
-    print("✅ Morphe-desktop hazır.")
-    
+    desktop = download_latest_github_asset("MorpheApp", "morphe-desktop", lambda n: "desktop" in n and n.endswith(".jar"))["name"]
     target_app = os.environ.get("TARGET_APP", "all")
     apps = PROCESS_ORDER if target_app == "all" else [target_app]
     
-    patches_pool = {}
-    notes_pool = {}
-    tags_pool = {}
+    patches_pool, tags_pool, notes_pool = {}, {}, {}
+    sources = [("morphe", "MorpheApp", "morphe-patches", "🟢", "Morphe"), ("piko", "crimera", "piko", "✖️", "Piko"), ("hoodles", "hoo-dles", "morphe-patches", "🍃", "hoo-dles"), ("adobo", "jkennethcarino", "adobo", "🥘", "Adobo"), ("rushi", "rushiranpise", "morphe-patches", "⚡", "Rushiranpise"), ("bufferk", "bufferk", "morphe-patches", "🟣", "Bufferk")]
     
-    sources = [
-        ("morphe", "MorpheApp", "morphe-patches", "🟢", "Morphe"),
-        ("piko", "crimera", "piko", "✖️", "Piko"),
-        ("hoodles", "hoo-dles", "morphe-patches", "🍃", "hoo-dles"),
-        ("adobo", "jkennethcarino", "adobo", "🥘", "Adobo"),
-        ("rushi", "rushiranpise", "morphe-patches", "⚡", "Rushiranpise"),
-        ("bufferk", "bufferk", "morphe-patches", "🟣", "Bufferk"),
-    ]
-    
-    print("\n🔍 Yama kaynakları (patches) kontrol ediliyor...")
     for key, owner, repo, emoji, name in sources:
         if any(APPS_CONFIG[a].get("patchSource") == key for a in apps):
             asset = download_latest_github_asset(owner, repo, lambda n: n.endswith(".mpp"), True)
-            patches_pool[key] = asset["name"]
-            tags_pool[key] = asset["tag"]
-            print(f"✅ {name} yama paketi bulundu: {asset['tag']}")
-            notes_pool[key] = f"\n<details>\n<summary>{emoji} <b>{name} Release Notes ({asset['tag']})</b></summary>\n<br>\n\n{asset['body']}\n\n</details>\n"
+            patches_pool[key], tags_pool[key] = asset["name"], asset["tag"]
+            notes_pool[key] = f"\n<details>\n<summary>{emoji} <b>{name} ({asset['tag']})</b></summary>\n{asset['body']}\n</details>\n"
             
     patched_list = []
     for app_key in apps:
-        config = APPS_CONFIG[app_key]
-        p_key = config["patchSource"]
-        p_file = patches_pool.get(p_key)
-        p_tag = tags_pool.get(p_key, "Bilinmiyor")
-        
-        if not p_file:
-            continue
-            
+        p_key = APPS_CONFIG[app_key]["patchSource"]
         try:
-            res = process_app(app_key, desktop, p_file, p_key, p_tag)
-            if res:
-                patched_list.append(res)
-        except Exception as e:
-            print(f"\n❌ {app_key.upper()} İŞLENİRKEN HATA: {e}")
-            print("="*55)
+            res = process_app(app_key, desktop, patches_pool[p_key], p_key, tags_pool[p_key])
+            if res: patched_list.append(res)
+        except Exception as e: print(f"❌ HATA ({app_key}): {e}")
             
     if patched_list:
-        print(f"\n🚀 Tüm yamalama işlemleri bitti. Github Release (Bülten) hazırlanıyor...")
-        dt_str = datetime.utcnow().strftime("%Y-%m-%dT%H-%M-%S")
-        tag = f"build-{dt_str}"
-        r_name = f"Patched APKs · {datetime.utcnow().strftime('%B %d, %Y')}"
-        
-        body = "### 📦 Latest Patched APKs\n\n"
+        release = ensure_release(f"build-{datetime.utcnow().strftime('%Y%m%d%H%M')}", f"Patched APKs · {datetime.utcnow().strftime('%Y-%m-%d')}", "".join(notes_pool.values()))
+        microg = False
         for apk in patched_list:
-            body += f'* <img src="{apk["icon"]}" width="16" height="16"> **{apk["displayName"]}**\n'
-        body += "\n---\n\n"
-        
-        for k, owner, repo, emoji, name in sources:
-            if k in notes_pool:
-                body += notes_pool[k]
-                
-        release = ensure_release(tag, r_name, body)
-        microg_uploaded = False
-        
-        for apk in patched_list:
-            print(f"☁️ Yükleniyor: {os.path.basename(apk['path'])}")
             upload_patched_apk(release, apk["path"])
-            if not microg_uploaded and apk["appName"] in ["youtube", "youtube-music"]:
-                print(f"☁️ Yükleniyor: MicroG.apk")
+            if not microg and apk["appName"] in ["youtube", "youtube-music"]:
                 upload_microg_once(release)
-                microg_uploaded = True
-                
-        print("\n🎉 Tüm dosyalar başarıyla GitHub'a yüklendi!")
+                microg = True
 
 if __name__ == "__main__":
     main()
