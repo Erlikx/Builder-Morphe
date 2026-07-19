@@ -1,40 +1,40 @@
-name: Patch APKs
+name: Patch and Release APKs
 
 on:
-  workflow_dispatch:
+  schedule:
+    - cron: '0 */6 * * *'   # Her 6 saatte bir
+  workflow_dispatch:         # Manuel tetikleme
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-
-    permissions:
-      contents: write
-      actions: write
-      id-token: write
-      attestations: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
       - name: Install Python dependencies
-        run: pip install httpx playwright
+        run: |
+          pip install -r requirements.txt
+          playwright install chromium
 
-      - name: Install Chromium for Playwright
-        run: playwright install chromium --with-deps
-
+      - name: Run patcher
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          # İsteğe bağlı: TARGET_APP: "youtube"
+        run: python main.py
       - name: Decode keystore
         run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > Panemi.keystore
 
