@@ -22,7 +22,8 @@ def get_latest_listing(app_name: str):
     options = uc.ChromeOptions()
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    driver = uc.Chrome(options=options)
+    # ÇÖZÜM BURADA: Sürümü 150 olarak sabitliyoruz
+    driver = uc.Chrome(options=options, version_main=150)
     
     try:
         driver.get(f"https://www.apkmirror.com/apk/{app_config['org']}/{app_config['slug']}/")
@@ -59,7 +60,8 @@ def download_apk(version: str, app_name: str, force_build: str = None) -> str:
     }
     options.add_experimental_option("prefs", prefs)
     
-    driver = uc.Chrome(options=options)
+    # ÇÖZÜM BURADA: Sürümü 150 olarak sabitliyoruz
+    driver = uc.Chrome(options=options, version_main=150)
     try:
         candidates = [
             f"{folder_url}/{name_part}-{version_slug}-release/",
