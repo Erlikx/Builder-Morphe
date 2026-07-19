@@ -34,7 +34,7 @@ APPS_CONFIG = {
     "youtube-music": {"pkg": "com.google.android.apps.youtube.music", "patchSource": "morphe", "am_url": "https://www.apkmirror.com/apk/google-inc/youtube-music/"},
     "reddit": {"pkg": "com.reddit.frontpage", "patchSource": "morphe", "am_url": "https://www.apkmirror.com/apk/reddit-inc/reddit/"},
     "twitter": {"pkg": "com.twitter.android", "patchSource": "piko", "am_url": "https://www.apkmirror.com/apk/x-corp/twitter/", "releaseSlug": "x", "exclude": ["Dynamic color"], "enable": ["Bring back twitter", "Disunify xchat system", "Export all activities"]},
-    "instagram": {"pkg": "com.instagram.android", "patchSource": "piko", "am_url": "https://www.apkmirror.com/apk/instagram/instagram-instagram/"},
+    "instagram": {"pkg": "com.instagram.android", "patchSource": "piko", "am_url": "https://www.apkmirror.com/apk/instagram/instagram-instagram/", "releaseSlug": "instagram"},
     "github": {"pkg": "com.github.android", "patchSource": "hoodles", "am_url": "https://www.apkmirror.com/apk/github/github-2/"},
     "niagara-launcher": {"pkg": "bitpit.launcher", "patchSource": "hoodles", "am_url": "https://www.apkmirror.com/apk/mellowdrop-studio/niagara-launcher-%f0%9f%94%b9-fresh-clean/"},
     "pydroid3": {"pkg": "ru.iiec.pydroid3", "patchSource": "hoodles", "am_url": "https://www.apkmirror.com/apk/lider-soft-kz/pydroid-3-ide-for-python-3/"},
@@ -78,7 +78,7 @@ def get_supported_version(desktop_jar, patches_mpp, pkg_name):
     try:
         cmd = ["java", "-jar", str(desktop_jar), "list-versions", "-f", pkg_name, "--patches", str(patches_mpp), "--include-experimental"]
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        versions = [m.group(1) for line in res.stdout.splitlines() for m in [re.search(r'(\d+\.\d+\.\d+(\.\d+)?)', line)] if m]
+        versions = [m.group(1) for line in res.stdout.splitlines() for m in [re.search(r'(\d+(?:\.\d+)+)', line)] if m]
         if versions:
             versions = sorted(list(set(versions)), key=lambda s: [int(u) for u in s.split('.') if u.isdigit()], reverse=True)
             return versions[0]
@@ -89,7 +89,6 @@ def download_apk(app_name, config, out_dir, target_version=None):
     
     if not target_version:
         print(f"[{app_name}] ⚠️ Uyarı: Yama dosyası bu uygulama için belirli bir sürüm önermedi!")
-        # Eğer özel bir yama sürümü yoksa (generic patch), en son sürümü deneriz.
     else:
         print(f"[{app_name}] 🎯 Hedeflenen yama sürümü: {target_version}")
     
@@ -105,7 +104,6 @@ def download_apk(app_name, config, out_dir, target_version=None):
             if target_version:
                 v_slug = target_version.replace(".", "-")
                 name_part = config.get("releaseSlug", base_url.rstrip('/').split('/')[-1])
-                # Farklı APKMirror link formatlarını deniyoruz
                 for c in [f"{base_url}{name_part}-{v_slug}-{s}/" for s in ["release", "release-0-release", "beta-0-release", "beta-1-release", "alpha-0-release"]]:
                     try:
                         res = page.goto(c, wait_until="domcontentloaded", timeout=15000)
@@ -115,12 +113,10 @@ def download_apk(app_name, config, out_dir, target_version=None):
                             break
                     except: continue
                 
-                # SADECE ÖNERİLEN SÜRÜM: Eğer hedeflenen sürüm bulunamazsa, yanlış sürüm indirip yamayı patlatmamak için işlemi iptal et.
                 if not release_url:
                     print(f"[{app_name}] ❌ HATA: {target_version} sürümü APKMirror'da bulunamadı veya link formatı farklı. Yamalama iptal ediliyor.")
                     return None
             else:
-                # Sadece yama özel bir sürüm belirtmemişse en son sürüme git
                 page.goto(base_url, wait_until="domcontentloaded", timeout=45000)
                 latest = page.locator("a[href*='-release/']").first
                 release_url = f"https://www.apkmirror.com{latest.get_attribute('href')}"
@@ -138,13 +134,19 @@ def download_apk(app_name, config, out_dir, target_version=None):
             page.goto(download_page_url, wait_until="domcontentloaded")
             
             page.wait_for_selector("#download-link", timeout=20000)
-            print(f"[{app_name}] APK indiriliyor (Bot koruması atlatılıyor)...")
+            print(f"[{app_name}] APK/Bundle indiriliyor (Bot koruması atlatılıyor)...")
             
             with page.expect_download(timeout=120000) as download_info:
                 page.locator("#download-link").click()
                 
             download = download_info.value
-            path = out_dir / f"{app_name}.apk"
+            
+            # --- Orijinal uzantıyı (.apkm, .apks veya .apk) koru ---
+            original_ext = Path(download.suggested_filename).suffix
+            if not original_ext:
+                original_ext = ".apk"
+                
+            path = out_dir / f"{app_name}{original_ext}"
             download.save_as(path)
             
             print(f"[{app_name}] ✅ İndirme başarılı: {path}")
@@ -196,10 +198,8 @@ def create_release(tag, name, body, assets):
         requests.post(f"{upload_url}?name={asset.name}", headers={**get_github_headers(), "Content-Type": "application/vnd.android.package-archive"}, data=open(asset, "rb")).raise_for_status()
 
 def main():
-    # Artık Masaüstü CLI aracı da Prerelease (True) olarak çekilecek.
     desktop = download_asset("MorpheApp", "morphe-desktop", ".jar", True)["path"]
     
-    # Tüm yamalar zaten Prerelease (True) olarak ayarlı.
     patches = {
         "morphe": download_asset("MorpheApp", "morphe-patches", ".mpp", True),
         "piko": download_asset("crimera", "piko", ".mpp", True),
@@ -214,13 +214,9 @@ def main():
         config = APPS_CONFIG[app]
         mpp = patches[config["patchSource"]]["path"]
         
-        # 1. Aşama: Yamanın önerdiği sürümü çek
         target_version = get_supported_version(desktop, mpp, config["pkg"])
-        
-        # 2. Aşama: O sürümü indir
         raw = download_apk(app, config, OUT_DIR, target_version)
         
-        # 3. Aşama: Yama işlemini başlat
         if raw:
             patched = patch_apk(desktop, mpp, raw, app)
             if patched: patched_apks.append(patched)
@@ -230,7 +226,6 @@ def main():
         tag = f"build-{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}"
         body = "### Latest Patched APKs\n" + "\n".join([f"* {p.name}" for p in patched_apks])
         
-        # MicroG'yi de ekliyoruz
         try:
             patched_apks.append(download_asset("MorpheApp", "MicroG-RE", ".apk", True)["path"])
         except:
