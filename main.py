@@ -1,22 +1,16 @@
-import sys
 import os
-import shutil
-import logging
-import asyncio
+import sys
+import time
+import json
+import random
+import requests
 import subprocess
 from pathlib import Path
-from datetime import datetime
+from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
+from playwright_stealth import stealth_sync
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
-from lib.github import download_latest_github_asset
-from lib.apkmirror import download_apk, get_latest_listing
-from lib.patcher import patch_apk
-from lib.release import ensure_release, upload_patched_apk, upload_microg_once
-from lib.versions import extract_youtube_versions, pick_latest_version
-
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# --- AYARLAR VE YAPILANDIRMA ---
 
 DISPLAY_NAMES = {
     "youtube": "YouTube",
@@ -35,353 +29,273 @@ DISPLAY_NAMES = {
     "brave": "Brave"
 }
 
-APKMIRROR_APPS = [
-    "youtube",
-    "youtube-music",
-    "reddit",
-    "twitter"
-]
-
 APPS_CONFIG = {
     "youtube": {
         "pkg": "com.google.android.youtube",
-        "name": "youtube",
-        "patch_source": "morphe",
-        "arch": "arm64-v8a",
-        "icon": "https://cdn.simpleicons.org/youtube/FF0000",
-        "exclude": []
+        "patchSource": "morphe",
+        "am_url": "https://www.apkmirror.com/apk/google-inc/youtube/"
     },
     "youtube-music": {
         "pkg": "com.google.android.apps.youtube.music",
-        "name": "youtube-music",
-        "patch_source": "morphe",
-        "arch": "arm64-v8a",
-        "icon": "https://cdn.simpleicons.org/youtubemusic/FF0000",
-        "exclude": []
+        "patchSource": "morphe",
+        "am_url": "https://www.apkmirror.com/apk/google-inc/youtube-music/"
     },
     "reddit": {
         "pkg": "com.reddit.frontpage",
-        "name": "reddit",
-        "patch_source": "morphe",
-        "arch": "arm64-v8a",
-        "icon": "https://cdn.simpleicons.org/reddit/FF4500",
-        "exclude": []
+        "patchSource": "morphe",
+        "am_url": "https://www.apkmirror.com/apk/reddit-inc/reddit/"
     },
     "twitter": {
         "pkg": "com.twitter.android",
-        "name": "twitter",
-        "patch_source": "piko",
-        "arch": "arm64-v8a",
-        "icon": "https://cdn.simpleicons.org/x/000000",
+        "patchSource": "piko",
+        "am_url": "https://www.apkmirror.com/apk/x-corp/twitter/",
         "exclude": ["Dynamic color"],
         "enable": ["Bring back twitter", "Disunify xchat system", "Export all activities"]
     },
     "instagram": {
         "pkg": "com.instagram.android",
-        "name": "instagram",
-        "patch_source": "piko",
-        "arch": "arm64-v8a",
-        "icon": "https://cdn.simpleicons.org/instagram/E4405F",
-        "exclude": [],
-        "enable": [],
-        "force_version": "435.0.0.37.76",
-        "force_build": "384109456"
+        "patchSource": "piko",
+        "am_url": "https://www.apkmirror.com/apk/instagram/instagram-instagram/"
     },
     "github": {
         "pkg": "com.github.android",
-        "name": "github",
-        "patch_source": "hoodles",
-        "arch": "arm64-v8a",
-        "icon": "https://cdn.simpleicons.org/github/ffffff",
-        "exclude": []
+        "patchSource": "hoodles",
+        "am_url": "https://www.apkmirror.com/apk/github/github-2/"
     },
     "niagara-launcher": {
         "pkg": "bitpit.launcher",
-        "name": "niagara-launcher",
-        "patch_source": "hoodles",
-        "arch": "arm64-v8a",
-        "icon": "https://www.google.com/s2/favicons?sz=128&domain=niagaralauncher.app",
-        "exclude": [],
-        "force_version": "1.16.8"
+        "patchSource": "hoodles",
+        "am_url": "https://www.apkmirror.com/apk/mellowdrop-studio/niagara-launcher-%f0%9f%94%b9-fresh-clean/"
     },
     "pydroid3": {
         "pkg": "ru.iiec.pydroid3",
-        "name": "pydroid3",
-        "patch_source": "hoodles",
-        "arch": "arm64-v8a",
-        "icon": "https://www.google.com/s2/favicons?sz=128&domain=pydroid3.com",
-        "exclude": []
+        "patchSource": "hoodles",
+        "am_url": "https://www.apkmirror.com/apk/lider-soft-kz/pydroid-3-ide-for-python-3/"
     },
     "smart-launcher": {
         "pkg": "ginlemon.flowerfree",
-        "name": "smart-launcher",
-        "patch_source": "hoodles",
-        "arch": "arm64-v8a",
-        "icon": "https://www.google.com/s2/favicons?sz=128&domain=smartlauncher.net",
-        "exclude": []
+        "patchSource": "hoodles",
+        "am_url": "https://www.apkmirror.com/apk/smart-launcher-team/smart-launcher/"
     },
     "wps-office": {
         "pkg": "cn.wps.moffice_eng",
-        "name": "wps-office",
-        "patch_source": "hoodles",
-        "arch": "arm64-v8a",
-        "icon": "https://www.google.com/s2/favicons?sz=128&domain=wps.com",
-        "exclude": []
+        "patchSource": "hoodles",
+        "am_url": "https://www.apkmirror.com/apk/wps-software-pte-ltd/wps-office-pdf/"
     },
     "gboard": {
         "pkg": "com.google.android.inputmethod.latin",
-        "name": "gboard",
-        "patch_source": "adobo",
-        "arch": "arm64-v8a",
-        "icon": "https://cdn.simpleicons.org/google/4285F4",
-        "exclude": [],
+        "patchSource": "adobo",
+        "am_url": "https://www.apkmirror.com/apk/google-inc/gboard/",
         "enable": ["Enable voice typing in incognito", "Enable key shape selection", "Enable clipboard in incognito", "Enable access points menu redesign", "Enable Undo feature", "Enable OCR feature", "Always-incognito mode"]
     },
     "speedtest": {
         "pkg": "org.zwanoo.android.speedtest",
-        "name": "speedtest",
-        "patch_source": "rushi",
-        "arch": "arm64-v8a",
-        "icon": "https://www.google.com/s2/favicons?sz=128&domain=speedtest.net",
-        "exclude": [],
-        "force_version": "7.0.7"
+        "patchSource": "rushi",
+        "am_url": "https://www.apkmirror.com/apk/ookla/speedtest/"
     },
     "solid-explorer": {
         "pkg": "pl.solidexplorer2",
-        "name": "solid-explorer",
-        "patch_source": "rushi",
-        "arch": "arm64-v8a",
-        "icon": "https://www.google.com/s2/favicons?sz=128&domain=solidexplorer.com",
-        "exclude": []
+        "patchSource": "rushi",
+        "am_url": "https://www.apkmirror.com/apk/neatbytes/solid-explorer-file-manager/"
     },
     "brave": {
         "pkg": "com.brave.browser",
-        "name": "brave",
-        "patch_source": "bufferk",
-        "arch": "arm64-v8a",
-        "icon": "https://cdn.simpleicons.org/brave/FB542B",
-        "exclude": []
+        "patchSource": "bufferk",
+        "am_url": "https://www.apkmirror.com/apk/brave-software/brave-browser/"
     }
 }
 
-PROCESS_ORDER = [
-    "youtube",
-    "youtube-music",
-    "reddit",
-    "twitter",
-    "instagram",
-    "github",
-    "niagara-launcher",
-    "pydroid3",
-    "smart-launcher",
-    "wps-office",
-    "gboard",
-    "speedtest",
-    "solid-explorer",
-    "brave"
-]
+OUT_DIR = Path("downloads")
+OUT_DIR.mkdir(exist_ok=True)
 
-async def process_app(app_key, desktop, patches):
-    config = APPS_CONFIG[app_key]
-    logger.info(f"\n📦 PROCESSING: {config['name'].upper()}")
+# --- YARDIMCI FONKSİYONLAR ---
 
-    selected_version = config.get("force_version")
+def sleep_jitter(base=2):
+    """Bot engellemesine karşı rastgele bekleme süresi."""
+    delay = base + random.uniform(0.5, 2.5)
+    time.sleep(delay)
 
-    if not selected_version and config["name"] in APKMIRROR_APPS:
+def get_latest_github_release(owner, repo):
+    """GitHub API'den en son sürüm asset'ini çeker."""
+    url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+    headers = {"Accept": "application/vnd.github+json"}
+    
+    if "GITHUB_TOKEN" in os.environ:
+        headers["Authorization"] = f"Bearer {os.environ['GITHUB_TOKEN']}"
+        
+    res = requests.get(url, headers=headers)
+    res.raise_for_status()
+    return res.json()
+
+def download_file(url, out_path):
+    """Standart dosya indirme."""
+    print(f"⬇️ İndiriliyor: {out_path.name}")
+    with requests.get(url, stream=True) as r:
+        r.raise_for_status()
+        with open(out_path, 'wb') as f:
+            for chunk in r.iter_content(chunk_size=8192):
+                f.write(chunk)
+    return out_path
+
+# --- APKMIRROR SCRAPER ---
+
+def download_from_apkmirror(app_name):
+    """Playwright + Stealth ile APKMirror üzerinden indirme yapar."""
+    config = APPS_CONFIG[app_name]
+    base_url = config["am_url"]
+    
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0 Safari/537.36",
+            accept_downloads=True,
+            viewport={"width": 1920, "height": 1080}
+        )
+        page = context.new_page()
+        stealth_sync(page)  # Bot korumasını aşmak için
+        
         try:
-            list_cmd = [
-                "java", "-jar", desktop,
-                "list-versions",
-                "-f", config["pkg"],
-                "--patches", patches,
-                "--include-experimental"
-            ]
-            result = subprocess.run(list_cmd, capture_output=True, text=True, timeout=60)
-            output = result.stdout + result.stderr
-            versions = extract_youtube_versions(output)
-            if versions:
-                selected_version = pick_latest_version(versions)
-                logger.info(f"✅ Morphe önerilen sürüm: {selected_version}")
+            print(f"🌐 Ziyaret ediliyor: {base_url}")
+            page.goto(base_url, wait_until="domcontentloaded")
+            sleep_jitter(3)
+            
+            # 1. En güncel sürümün bağlantısını bul (Release sayfası)
+            latest_release_element = page.locator("a[href*='-release/']").first
+            release_url = f"https://www.apkmirror.com{latest_release_element.get_attribute('href')}"
+            print(f"➡️ Sürüm Sayfası: {release_url}")
+            
+            page.goto(release_url, wait_until="domcontentloaded")
+            sleep_jitter(2)
+            
+            # 2. Uygun varyantı (arm64-v8a veya universal) seç
+            page.wait_for_selector(".table-row", timeout=15000)
+            rows = page.locator(".table-row").all()
+            
+            variant_url = None
+            for row in rows:
+                text = row.inner_text().lower()
+                # Mimari kontrolleri
+                if "arm64-v8a" in text or "universal" in text or "noarch" in text:
+                    link = row.locator("a.accent_color").first
+                    if link:
+                        variant_url = f"https://www.apkmirror.com{link.get_attribute('href')}"
+                        break
+                        
+            if not variant_url:
+                raise Exception("Uygun bir arm64-v8a veya universal varyant bulunamadı.")
+                
+            print(f"➡️ Varyant Sayfası: {variant_url}")
+            page.goto(variant_url, wait_until="domcontentloaded")
+            sleep_jitter(2)
+            
+            # 3. İndirme sayfasına git
+            page.wait_for_selector("a.downloadButton", timeout=15000)
+            download_page_href = page.locator("a.downloadButton").get_attribute("href")
+            download_url = f"https://www.apkmirror.com{download_page_href}"
+            
+            print(f"⬇️ İndirme başlatılıyor...")
+            page.goto(download_url, wait_until="domcontentloaded")
+            
+            # 4. Asıl indirmeyi yakala
+            with page.expect_download(timeout=45000) as download_info:
+                # İndirme genellikle otomatik başlar, başlamazsa 'download-link' fallback
+                fallback_link = page.locator("#download-link")
+                if fallback_link.is_visible():
+                    fallback_link.click()
+            
+            download = download_info.value
+            file_name = download.suggested_filename
+            file_path = OUT_DIR / file_name
+            download.save_as(file_path)
+            
+            print(f"📦 BAŞARILI: {file_path}")
+            return file_path
+            
         except Exception as e:
-            logger.warning(f"⚠️ Morphe list-versions başarısız: {e}")
+            print(f"❌ APKMirror Hatası ({app_name}): {str(e)}")
+            return None
+        finally:
+            browser.close()
 
-    if not selected_version:
-        try:
-            listing = await get_latest_listing(config["name"])
-            if listing and listing.get("version"):
-                selected_version = listing["version"]
-                logger.info(f"✅ APKMirror en son sürüm: {selected_version}")
-            else:
-                raise Exception("Sürüm bulunamadı")
-        except Exception as e:
-            logger.error(f"APKMirror'dan sürüm alınamadı: {e}")
-            raise Exception("Uygun bir sürüm numarası belirlenemedi.")
+# --- YAMALAMA SÜRECİ ---
 
-    force_build = config.get("force_build")
-    apk_path = await download_apk(selected_version, config["name"], force_build)
+def patch_apk(desktop_jar, patches_mpp, apk_path, app_name):
+    """Morphe Java aracı ile APK'yı yamalar."""
+    config = APPS_CONFIG[app_name]
+    print(f"\n🛠️ Patching APK ({app_name.upper()})...")
+    
+    cmd = [
+        "java", "-jar", str(desktop_jar), "patch",
+        "--patches", str(patches_mpp),
+        "--striplibs", "arm64-v8a"
+    ]
+    
+    # Keystore kontrolü
+    ks_path = os.environ.get("KS_PATH")
+    if ks_path and Path(ks_path).exists():
+        cmd.extend([
+            "--keystore", ks_path,
+            "--keystore-password", os.environ.get("KS_PASSWORD", ""),
+            "--keystore-entry-alias", os.environ.get("KS_ALIAS", ""),
+            "--keystore-entry-password", os.environ.get("KEY_PASSWORD", "")
+        ])
+    
+    for ex in config.get("exclude", []):
+        cmd.extend(["--disable", ex])
+    for en in config.get("enable", []):
+        cmd.extend(["--enable", en])
+        
+    cmd.append(str(apk_path))
+    
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        # Çıktıdan yeni APK yolunu bul
+        for line in result.stdout.splitlines():
+            if "Saved to" in line:
+                patched_apk = line.split("Saved to")[-1].strip()
+                print(f"✅ Patch tamamlandı: {patched_apk}")
+                return Path(patched_apk)
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Yama başarısız oldu:\n{e.stdout}\n{e.stderr}")
+    return None
 
-    extra_args = []
-    if config.get("exclude"):
-        for p in config["exclude"]:
-            extra_args.append(f'--disable "{p}"')
-    if config.get("enable"):
-        for p in config["enable"]:
-            extra_args.append(f'--enable "{p}"')
-    extra_args_str = " ".join(extra_args)
+# --- ANA DÖNGÜ ---
 
-    patched_apk = patch_apk(desktop, patches, apk_path, extra_args_str, config["arch"])
-
-    if not patched_apk or not Path(patched_apk).exists():
-        return None
-
-    app_display_name = DISPLAY_NAMES.get(config["name"], config["name"])
-    final_name = f"{app_display_name}-{selected_version}.apk"
-    final_path = Path(final_name)
-
-    shutil.copyfile(patched_apk, final_path)
-
-    return {
-        "app_name": config["name"],
-        "display_name": app_display_name,
-        "icon": config["icon"],
-        "patch_source": config["patch_source"],
-        "name": final_name,
-        "path": str(final_path),
-        "version": selected_version
+def main():
+    print("🚀 Otomasyon Başlatılıyor...")
+    
+    # Gerekli yamalayıcı araçlarını indir (Basitleştirilmiş gösterim, morphe-desktop.jar'ı yerel kabul eder)
+    # Gerçek senaryoda burada get_latest_github_release ile morphe-desktop ve patch dosyalarını (piko.mpp vb.) çekmelisin.
+    desktop_jar = Path("morphe-desktop-1.11.0-all.jar") 
+    
+    # Yama (mpp) dosyalarının bulunduğu varsayılan sözlük
+    patches = {
+        "morphe": Path("morphe.mpp"),
+        "piko": Path("piko.mpp"),
+        "hoodles": Path("hoodles.mpp"),
+        "adobo": Path("adobo.mpp"),
+        "rushi": Path("rushi.mpp"),
+        "bufferk": Path("bufferk.mpp")
     }
 
-async def main():
-    logger.info("Starting patching process...")
-
-    desktop_obj = await asyncio.to_thread(
-        download_latest_github_asset,
-        owner="MorpheApp",
-        repo="morphe-desktop",
-        match_func=lambda n: "desktop" in n and n.endswith(".jar")
-    )
-    desktop = desktop_obj["name"]
-
     target_app = os.environ.get("TARGET_APP", "all")
-    apps_to_process = PROCESS_ORDER if target_app == "all" else [target_app]
+    apps_to_process = list(APPS_CONFIG.keys()) if target_app == "all" else [target_app]
 
-    patch_sources_needed = set()
-    for app_key in apps_to_process:
-        if app_key in APPS_CONFIG:
-            patch_sources_needed.add(APPS_CONFIG[app_key]["patch_source"])
-
-    patches_pool = {}
-    notes = {}
-
-    if "morphe" in patch_sources_needed:
-        mpp = await asyncio.to_thread(
-            download_latest_github_asset,
-            owner="MorpheApp",
-            repo="morphe-patches",
-            prerelease=True,
-            match_func=lambda n: n.endswith(".mpp")
-        )
-        patches_pool["morphe"] = mpp["name"]
-        notes["morphe"] = f"\n<details>\n<summary>🟢 <b>Morphe Release Notes ({mpp['tag']})</b></summary>\n<br>\n\n{mpp['body']}\n\n</details>\n"
-
-    if "piko" in patch_sources_needed:
-        mpp = await asyncio.to_thread(
-            download_latest_github_asset,
-            owner="crimera",
-            repo="piko",
-            prerelease=True,
-            match_func=lambda n: n.endswith(".mpp")
-        )
-        patches_pool["piko"] = mpp["name"]
-        notes["piko"] = f"\n<details>\n<summary>✖️ <b>Piko Release Notes ({mpp['tag']})</b></summary>\n<br>\n\n{mpp['body']}\n\n</details>\n"
-
-    if "hoodles" in patch_sources_needed:
-        mpp = await asyncio.to_thread(
-            download_latest_github_asset,
-            owner="hoo-dles",
-            repo="morphe-patches",
-            prerelease=True,
-            match_func=lambda n: n.endswith(".mpp")
-        )
-        patches_pool["hoodles"] = mpp["name"]
-        notes["hoodles"] = f"\n<details>\n<summary>🍃 <b>hoo-dles Release Notes ({mpp['tag']})</b></summary>\n<br>\n\n{mpp['body']}\n\n</details>\n"
-
-    if "adobo" in patch_sources_needed:
-        mpp = await asyncio.to_thread(
-            download_latest_github_asset,
-            owner="jkennethcarino",
-            repo="adobo",
-            prerelease=True,
-            match_func=lambda n: n.endswith(".mpp")
-        )
-        patches_pool["adobo"] = mpp["name"]
-        notes["adobo"] = f"\n<details>\n<summary>🥘 <b>Adobo Release Notes ({mpp['tag']})</b></summary>\n<br>\n\n{mpp['body']}\n\n</details>\n"
-
-    if "rushi" in patch_sources_needed:
-        mpp = await asyncio.to_thread(
-            download_latest_github_asset,
-            owner="rushiranpise",
-            repo="morphe-patches",
-            prerelease=True,
-            match_func=lambda n: n.endswith(".mpp")
-        )
-        patches_pool["rushi"] = mpp["name"]
-        notes["rushi"] = f"\n<details>\n<summary>⚡ <b>Rushiranpise Release Notes ({mpp['tag']})</b></summary>\n<br>\n\n{mpp['body']}\n\n</details>\n"
-
-    if "bufferk" in patch_sources_needed:
-        mpp = await asyncio.to_thread(
-            download_latest_github_asset,
-            owner="bufferk",
-            repo="morphe-patches",
-            prerelease=True,
-            match_func=lambda n: n.endswith(".mpp")
-        )
-        patches_pool["bufferk"] = mpp["name"]
-        notes["bufferk"] = f"\n<details>\n<summary>🟣 <b>Bufferk Release Notes ({mpp['tag']})</b></summary>\n<br>\n\n{mpp['body']}\n\n</details>\n"
-
-    patched_apks = []
-
-    for app_key in apps_to_process:
-        try:
-            source = APPS_CONFIG[app_key]["patch_source"]
-            patches_file = patches_pool.get(source)
-            if not patches_file:
-                logger.error(f"❌ Patch source {source} not available for {app_key}")
-                continue
-            result = await process_app(app_key, desktop, patches_file)
-            if result:
-                patched_apks.append(result)
-        except Exception as e:
-            logger.error(f"❌ {app_key.upper()} failed, skipping: {str(e)}")
-
-    if patched_apks:
-        date = datetime.now()
-        tag_date_str = date.strftime("%Y-%m-%d-%H-%M-%S")
-        release_tag = f"build-{tag_date_str}"
-        release_name = f"Patched APKs · {date.strftime('%d %B %Y')}"
-
-        release_body = "### 📦 Latest Patched APKs\n\n"
-        for apk in patched_apks:
-            release_body += f"* <img src=\"{apk['icon']}\" width=\"16\" height=\"16\"> **{apk['display_name']}**\n"
-
-        release_body += "\n---\n\n"
-
-        for source in patch_sources_needed:
-            if source in notes:
-                release_body += notes[source]
-
-        logger.info(f"\n📢 Creating New Release: {release_tag}")
-        release = ensure_release(release_tag, release_name, release_body)
-
-        microg_uploaded = False
-        for apk in patched_apks:
-            upload_patched_apk(release, apk["path"])
-            if not microg_uploaded and (apk["app_name"] in ("youtube", "youtube-music")):
-                upload_microg_once(release)
-                microg_uploaded = True
-
-        logger.info("\n🎉 All apps successfully published under one release!")
-    else:
-        logger.error("No patched APKs to upload.")
+    for app in apps_to_process:
+        print(f"\n========================================")
+        print(f"📦 İŞLEM: {DISPLAY_NAMES.get(app, app)}")
+        
+        apk_path = download_from_apkmirror(app)
+        if apk_path and apk_path.exists():
+            patch_source = APPS_CONFIG[app]["patchSource"]
+            patch_file = patches.get(patch_source)
+            
+            if patch_file and patch_file.exists():
+                patched_file = patch_apk(desktop_jar, patch_file, apk_path, app)
+                if patched_file:
+                    print(f"🎉 {app.upper()} başarıyla hazırlandı!")
+            else:
+                print(f"⚠️ Yama dosyası bulunamadı: {patch_file}")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
