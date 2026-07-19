@@ -39,8 +39,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           KS_PATH: Panemi.keystore
-          KS_PASSWORD: ${{ secrets.KS_PASSWORD }}
-          KS_ALIAS: ${{ secrets.KS_ALIAS }}
+          KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: python main.py
 
