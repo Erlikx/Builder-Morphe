@@ -1,29 +1,27 @@
-name: Patch Morphe
+name: Patch APKs
 
 on:
   workflow_dispatch:
-    inputs:
-      target_app:
-        description: "App to patch (leave blank for all)"
-        required: false
-        default: "all"
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 45
 
     permissions:
       contents: write
+      actions: write
+      id-token: write
+      attestations: write
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: '3.12'
 
       - name: Setup Java
         uses: actions/setup-java@v4
@@ -32,26 +30,32 @@ jobs:
           java-version: 17
 
       - name: Install Python dependencies
-        run: |
-          pip install -r requirements.txt
-          playwright install chromium --with-deps
+        run: pip install httpx playwright
 
-      - name: Setup Keystore
-        run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > Panemi.keystore
+      - name: Install Chromium for Playwright
+        run: playwright install chromium --with-deps
+
+      - name: Decode keystore
+        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > Panemi.keystore
 
       - name: Run patcher
-        run: python main.py
+        run: python patcher.py
         env:
-          GITHUB_TOKEN:      ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          TARGET_APP:        ${{ github.event.inputs.target_app }}
-          KS_PATH:           Panemi.keystore
-          KS_PASSWORD:       ${{ secrets.KEYSTORE_PASSWORD }}
-          KS_ALIAS:          ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD:      ${{ secrets.KEY_PASSWORD }}
+          TARGET_APP: all
+          KS_PATH: Panemi.keystore
+          KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-      - name: Delete old workflow runs
+      - name: Generate provenance attestation
+        uses: actions/attest@v4
+        with:
+          subject-path: '*.apk'
+          exclude-path: 'microg*.apk'
+
+      - name: Cleanup old workflow runs
         uses: Mattraks/delete-workflow-runs@v2
         with:
           retain_days: 0
