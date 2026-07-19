@@ -10,7 +10,8 @@ APP_SITES = {
     "youtube-music": {"org": "google-inc", "slug": "youtube-music"},
     "reddit": {"org": "reddit-inc", "slug": "reddit"},
     "twitter": {"org": "x-corp", "slug": "twitter", "releaseSlug": "x"},
-    "instagram": {"org": "instagram", "slug": "instagram"}
+    "instagram": {"org": "instagram", "slug": "instagram"},
+    "niagara-launcher": {"org": "mellowdrop-studio", "slug": "niagara-launcher"}
 }
 
 def get_latest_listing(app_name: str):
