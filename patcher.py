@@ -1,17 +1,25 @@
 #!/usr/bin/env python3
+"""
+Morpe APK Patcher – full Python rewrite
+– stealth browser for APKMirror
+– resumable GitHub downloads
+– automatic release upload
+"""
+
 import asyncio
 import os
 import re
 import random
 import shutil
 import subprocess
-import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
 from playwright.async_api import async_playwright
+from playwright_stealth import stealth
 
+# --------------- environment ---------------
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 GITHUB_REPOSITORY = os.environ["GITHUB_REPOSITORY"]
 TARGET_APP = os.environ.get("TARGET_APP", "all")
@@ -226,6 +234,7 @@ USER_AGENTS = [
     "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
 ]
 
+# Extended stealth arguments for Chromium
 STEALTH_ARGS = [
     "--disable-blink-features=AutomationControlled",
     "--disable-infobars",
@@ -235,9 +244,26 @@ STEALTH_ARGS = [
     "--disable-web-security",
     "--disable-features=IsolateOrigins,site-per-process",
     "--disable-site-isolation-trials",
+    "--disable-component-update",
+    "--disable-default-apps",
+    "--disable-domain-reliability",
+    "--disable-hang-monitor",
+    "--disable-ipc-flooding-protection",
+    "--disable-popup-blocking",
+    "--disable-prompt-on-repost",
+    "--disable-renderer-backgrounding",
+    "--disable-sync",
+    "--force-color-profile=srgb",
+    "--metrics-recording-only",
+    "--no-first-run",
+    "--password-store=basic",
+    "--use-mock-keychain",
+    "--export-tagged-pdf",
+    "--enable-features=NetworkService,NetworkServiceInProcess",
 ]
 
 
+# --------------- helper functions ---------------
 def extract_versions(output: str):
     results = []
     in_section = False
@@ -277,8 +303,21 @@ def to_apkmirror_version(version: str):
     return version.replace(".", "-")
 
 
+async def human_delay(page, min_ms=500, max_ms=2000):
+    await page.wait_for_timeout(random.randint(min_ms, max_ms))
+
+
+async def random_scroll(page):
+    await page.evaluate("window.scrollBy(0, {})".format(random.randint(100, 400)))
+
+
+async def random_mouse_move(page):
+    await page.mouse.move(random.randint(100, 800), random.randint(100, 600))
+
+
+# --------------- GitHub asset download ---------------
 async def download_github_asset(owner, repo, match_fn, prerelease=False):
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
         if prerelease:
             url = f"https://api.github.com/repos/{owner}/{repo}/releases"
         else:
@@ -308,7 +347,7 @@ async def download_github_asset(owner, repo, match_fn, prerelease=False):
                 "Accept": "*/*",
                 "Authorization": f"Bearer {GITHUB_TOKEN}",
             }
-            async with client.stream("GET", download_url, headers=headers, follow_redirects=True) as r:
+            async with client.stream("GET", download_url, headers=headers) as r:
                 r.raise_for_status()
                 with open(name, "wb") as f:
                     async for chunk in r.aiter_bytes(chunk_size=8192):
@@ -317,20 +356,49 @@ async def download_github_asset(owner, repo, match_fn, prerelease=False):
         return {"name": name, "body": release.get("body", ""), "tag": release.get("tag_name", "")}
 
 
+# --------------- APKMirror stealth browser ---------------
+async def new_stealth_browser(playwright, accept_downloads=False):
+    browser = await playwright.chromium.launch(
+        headless=True,
+        args=STEALTH_ARGS,
+    )
+    context = await browser.new_context(
+        accept_downloads=accept_downloads,
+        user_agent=random.choice(USER_AGENTS),
+        viewport={"width": 1920, "height": 1080},
+        locale="en-US",
+        timezone_id="America/New_York",
+        permissions=[],  # no extra permissions
+        geolocation={"longitude": -73.97, "latitude": 40.75},  # New York
+        color_scheme="light",
+        extra_http_headers={
+            "Accept-Language": "en-US,en;q=0.9",
+        },
+    )
+    page = await context.new_page()
+    # Apply full stealth patches
+    await stealth(page)
+    # Override some navigator properties to avoid detection
+    await page.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
+        Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
+        Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
+        window.chrome = { runtime: {} };
+    """)
+    return browser, context, page
+
+
 async def get_latest_apkmirror_version(org, slug):
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=STEALTH_ARGS)
-        context = await browser.new_context(
-            user_agent=random.choice(USER_AGENTS),
-            viewport={"width": 1920, "height": 1080},
-            locale="en-US",
-        )
-        page = await context.new_page()
-        await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        browser, context, page = await new_stealth_browser(p, accept_downloads=False)
         try:
             listing_url = f"https://www.apkmirror.com/apk/{org}/{slug}/"
-            await page.goto(listing_url, wait_until="domcontentloaded")
-            await page.wait_for_timeout(random.randint(2000, 4000))
+            await page.goto(listing_url, wait_until="domcontentloaded", timeout=60000)
+            await human_delay(page, 3000, 6000)
+            await random_scroll(page)
+            await random_mouse_move(page)
+            await human_delay(page, 1000, 2000)
+
             result = await page.evaluate("""() => {
                 const link = document.querySelector('a[href*="-release/"]');
                 if (!link) return null;
@@ -351,15 +419,7 @@ async def download_from_apkmirror(version, app_key, force_build=None):
     release_slug = config.get("apkmirror_release_slug", slug)
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=STEALTH_ARGS)
-        context = await browser.new_context(
-            accept_downloads=True,
-            user_agent=random.choice(USER_AGENTS),
-            viewport={"width": 1920, "height": 1080},
-            locale="en-US",
-        )
-        page = await context.new_page()
-        await page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        browser, context, page = await new_stealth_browser(p, accept_downloads=True)
 
         try:
             version_slug = to_apkmirror_version(version)
@@ -374,7 +434,7 @@ async def download_from_apkmirror(version, app_key, force_build=None):
             list_url = None
             for candidate in candidates:
                 try:
-                    resp = await page.goto(candidate, wait_until="domcontentloaded")
+                    resp = await page.goto(candidate, wait_until="domcontentloaded", timeout=60000)
                     if resp and resp.status != 404:
                         has_rows = await page.query_selector(".table-row")
                         if has_rows:
@@ -382,12 +442,14 @@ async def download_from_apkmirror(version, app_key, force_build=None):
                             break
                 except Exception:
                     pass
-                await page.wait_for_timeout(random.randint(1000, 2000))
+                await human_delay(page, 2000, 4000)
 
             if not list_url:
                 listing = f"{folder_url}/"
-                await page.goto(listing, wait_until="domcontentloaded")
-                await page.wait_for_timeout(random.randint(2000, 4000))
+                await page.goto(listing, wait_until="domcontentloaded", timeout=60000)
+                await human_delay(page, 4000, 8000)
+                await random_scroll(page)
+                await random_mouse_move(page)
                 found = await page.evaluate("""([versionSlug]) => {
                     const links = Array.from(document.querySelectorAll('a[href*="-release/"]'));
                     const match = links.find(a => a.href.includes(versionSlug));
@@ -397,9 +459,10 @@ async def download_from_apkmirror(version, app_key, force_build=None):
                     raise Exception(f"No APKMirror release page for version {version}")
                 list_url = found
 
-            await page.goto(list_url, wait_until="domcontentloaded")
-            await page.wait_for_selector(".table-row")
-            await page.wait_for_timeout(random.randint(1500, 3000))
+            await page.goto(list_url, wait_until="domcontentloaded", timeout=60000)
+            await page.wait_for_selector(".table-row", timeout=60000)
+            await human_delay(page, 3000, 5000)
+            await random_scroll(page)
 
             variant_url = await page.evaluate(
                 f"""(forceBuild) => {{
@@ -434,19 +497,55 @@ async def download_from_apkmirror(version, app_key, force_build=None):
             if not variant_url:
                 raise Exception("No matching variant found on APKMirror")
 
-            await page.goto(variant_url, wait_until="domcontentloaded")
-            await page.wait_for_selector("a.downloadButton")
-            await page.wait_for_timeout(random.randint(1500, 3000))
+            await page.goto(variant_url, wait_until="domcontentloaded", timeout=60000)
+            # Wait for download button or fallback link
+            try:
+                await page.wait_for_selector("a.downloadButton, #download-link", timeout=60000)
+            except Exception:
+                # extra wait and human actions
+                await human_delay(page, 5000, 10000)
+                await random_scroll(page)
+                await random_mouse_move(page)
+                await page.wait_for_selector("a.downloadButton, #download-link", timeout=30000)
+
+            await human_delay(page, 2000, 4000)
+
+            # Extract final download URL (prefer direct link)
+            download_url = await page.evaluate("""() => {
+                const btn = document.querySelector('a.downloadButton');
+                if (btn && btn.href) return btn.href;
+                const fallback = document.querySelector('#download-link');
+                return fallback ? fallback.href : null;
+            }""")
+
+            if not download_url:
+                raise Exception("Download URL not found on APKMirror")
 
             out_dir = Path.cwd() / "downloads"
             out_dir.mkdir(exist_ok=True)
 
-            async with page.expect_download() as download_info:
-                await page.click("a.downloadButton")
-            download = await download_info.value
-            filename = download.suggested_filename
-            filepath = out_dir / filename
-            await download.save_as(str(filepath))
+            # Use httpx with full headers to mimic browser
+            async with httpx.AsyncClient(timeout=300, follow_redirects=True) as client:
+                headers = {
+                    "User-Agent": random.choice(USER_AGENTS),
+                    "Accept": "*/*",
+                    "Referer": variant_url,
+                    "Accept-Language": "en-US,en;q=0.9",
+                    "Connection": "keep-alive",
+                }
+                async with client.stream("GET", download_url, headers=headers) as r:
+                    r.raise_for_status()
+                    content_disposition = r.headers.get("content-disposition", "")
+                    filename_match = re.search(r'filename[^;=\n]*=((["\']).*?\2|[^;\n]*)', content_disposition)
+                    if filename_match:
+                        filename = filename_match.group(1).strip('"\'')
+                    else:
+                        filename = download_url.split("/")[-1].split("?")[0] or f"{app_key}.apk"
+
+                    filepath = out_dir / filename
+                    with open(filepath, "wb") as f:
+                        async for chunk in r.aiter_bytes(8192):
+                            f.write(chunk)
 
             return str(filepath)
 
@@ -454,10 +553,11 @@ async def download_from_apkmirror(version, app_key, force_build=None):
             await browser.close()
 
 
+# --------------- GitHub download (fuckpdf/Depo) ---------------
 async def download_from_github(app_key):
     config = APPS_CONFIG[app_key]
     tag = config["github_tag"]
-    async with httpx.AsyncClient(timeout=60) as client:
+    async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
         api_url = f"https://api.github.com/repos/fuckpdf/Depo/releases/tags/{tag}"
         resp = await client.get(api_url, headers={"User-Agent": "morphe-patcher"})
         resp.raise_for_status()
@@ -470,7 +570,12 @@ async def download_from_github(app_key):
         out_dir.mkdir(exist_ok=True)
         filepath = out_dir / asset["name"]
         download_url = asset["browser_download_url"]
-        async with client.stream("GET", download_url, headers={"User-Agent": "morphe-patcher"}) as r:
+        headers = {
+            "User-Agent": "morphe-patcher",
+            "Accept": "*/*",
+            "Authorization": f"Bearer {GITHUB_TOKEN}",
+        }
+        async with client.stream("GET", download_url, headers=headers) as r:
             r.raise_for_status()
             with open(filepath, "wb") as f:
                 async for chunk in r.aiter_bytes(8192):
@@ -478,6 +583,7 @@ async def download_from_github(app_key):
         return str(filepath)
 
 
+# --------------- patching ---------------
 def patch_apk(desktop, patches, apk_path, extra_args="", arch="arm64-v8a"):
     ks_path = os.environ.get("KS_PATH")
     ks_password = os.environ.get("KS_PASSWORD")
@@ -513,6 +619,7 @@ def patch_apk(desktop, patches, apk_path, extra_args="", arch="arm64-v8a"):
     return patched
 
 
+# --------------- release helpers ---------------
 async def create_release(tag, name, body):
     async with httpx.AsyncClient(timeout=30) as client:
         url = f"https://api.github.com/repos/{GITHUB_REPOSITORY}/releases"
@@ -580,6 +687,7 @@ async def upload_microg(release):
     await upload_with_replace(release, str(target))
 
 
+# --------------- per-app processing ---------------
 async def process_app(app_key, desktop, patches):
     config = APPS_CONFIG[app_key]
     selected_version = config.get("force_version")
@@ -636,6 +744,7 @@ async def process_app(app_key, desktop, patches):
     }
 
 
+# --------------- main ---------------
 async def main():
     desktop_asset = await download_github_asset(
         "MorpheApp", "morphe-desktop",
