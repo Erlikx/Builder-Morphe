@@ -2,6 +2,7 @@ import subprocess
 import os
 import re
 import logging
+import shlex
 
 logger = logging.getLogger(__name__)
 
@@ -13,17 +14,19 @@ def patch_apk(desktop, patches, apk, extra_args="", arch="arm64-v8a"):
     ks_alias = os.environ.get("KS_ALIAS")
     key_password = os.environ.get("KEY_PASSWORD")
 
-    cmd_parts = [
-        "java", "-jar", desktop, "patch",
+    # Komutu liste olarak oluştur (shell=False ile çalıştırmak için)
+    cmd = [
+        "java", "-jar", desktop,
+        "patch",
         "--patches", patches
     ]
 
     if arch:
-        cmd_parts.extend(["--striplibs", arch])
+        cmd.extend(["--striplibs", arch])
 
     if ks_path and os.path.exists(ks_path) and ks_password and ks_alias and key_password:
         logger.info("🔑 Custom keystore detected! Signing with your private key...")
-        cmd_parts.extend([
+        cmd.extend([
             "--keystore", ks_path,
             "--keystore-password", ks_password,
             "--keystore-entry-alias", ks_alias,
@@ -32,16 +35,17 @@ def patch_apk(desktop, patches, apk, extra_args="", arch="arm64-v8a"):
     else:
         logger.info("⚠️ Custom keystore credentials missing or file not found. Falling back to default Morphe testkey.")
 
+    # Extra argümanları (örn. --disable "Dynamic color") doğru şekilde parse et
     if extra_args and extra_args.strip():
-        cmd_parts.extend(extra_args.strip().split())
+        cmd.extend(shlex.split(extra_args))
 
-    cmd_parts.append(apk)
+    cmd.append(apk)  # APK dosyası en sona eklenir
 
-    command = " ".join(cmd_parts)
-    logger.info(f"🖥️ EXECUTING COMMAND: {command}")
+    logger.info(f"🖥️ EXECUTING COMMAND: {' '.join(cmd)}")
 
     try:
-        result = subprocess.run(command, shell=True, capture_output=True, text=True, timeout=600)
+        # shell=False ile liste halinde çalıştır
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         output = result.stdout + result.stderr
         logger.info(output)
 
