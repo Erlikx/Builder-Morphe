@@ -86,7 +86,12 @@ def get_supported_version(desktop_jar, patches_mpp, pkg_name):
 
 def download_apk(app_name, config, out_dir, target_version=None):
     base_url = config["am_url"]
-    print(f"[{app_name}] Hedeflenen yama sürümü: {target_version}")
+    
+    if not target_version:
+        print(f"[{app_name}] ⚠️ Uyarı: Yama dosyası bu uygulama için belirli bir sürüm önermedi!")
+        # Eğer özel bir yama sürümü yoksa (generic patch), en son sürümü deneriz.
+    else:
+        print(f"[{app_name}] 🎯 Hedeflenen yama sürümü: {target_version}")
     
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
@@ -100,7 +105,8 @@ def download_apk(app_name, config, out_dir, target_version=None):
             if target_version:
                 v_slug = target_version.replace(".", "-")
                 name_part = config.get("releaseSlug", base_url.rstrip('/').split('/')[-1])
-                for c in [f"{base_url}{name_part}-{v_slug}-{s}/" for s in ["release", "release-0-release", "beta-0-release", "beta-1-release"]]:
+                # Farklı APKMirror link formatlarını deniyoruz
+                for c in [f"{base_url}{name_part}-{v_slug}-{s}/" for s in ["release", "release-0-release", "beta-0-release", "beta-1-release", "alpha-0-release"]]:
                     try:
                         res = page.goto(c, wait_until="domcontentloaded", timeout=15000)
                         if res and res.status != 404 and page.locator(".table-row").count() > 0:
@@ -108,10 +114,13 @@ def download_apk(app_name, config, out_dir, target_version=None):
                             print(f"[{app_name}] Doğru sürüm bulundu: {release_url}")
                             break
                     except: continue
-            
-            # Eğer spesifik sürüm bulunamazsa en son sürüme geçiş yapar
-            if not release_url:
-                print(f"[{app_name}] Uyarı: Hedeflenen sürüm URL'si bulunamadı, en son sürüme gidiliyor!")
+                
+                # SADECE ÖNERİLEN SÜRÜM: Eğer hedeflenen sürüm bulunamazsa, yanlış sürüm indirip yamayı patlatmamak için işlemi iptal et.
+                if not release_url:
+                    print(f"[{app_name}] ❌ HATA: {target_version} sürümü APKMirror'da bulunamadı veya link formatı farklı. Yamalama iptal ediliyor.")
+                    return None
+            else:
+                # Sadece yama özel bir sürüm belirtmemişse en son sürüme git
                 page.goto(base_url, wait_until="domcontentloaded", timeout=45000)
                 latest = page.locator("a[href*='-release/']").first
                 release_url = f"https://www.apkmirror.com{latest.get_attribute('href')}"
@@ -129,10 +138,8 @@ def download_apk(app_name, config, out_dir, target_version=None):
             page.goto(download_page_url, wait_until="domcontentloaded")
             
             page.wait_for_selector("#download-link", timeout=20000)
-            
             print(f"[{app_name}] APK indiriliyor (Bot koruması atlatılıyor)...")
             
-            # Requests yerine indirme işlemini Playwright'ın kendisine devrediyoruz
             with page.expect_download(timeout=120000) as download_info:
                 page.locator("#download-link").click()
                 
@@ -140,32 +147,46 @@ def download_apk(app_name, config, out_dir, target_version=None):
             path = out_dir / f"{app_name}.apk"
             download.save_as(path)
             
-            print(f"[{app_name}] İndirme başarılı: {path}")
+            print(f"[{app_name}] ✅ İndirme başarılı: {path}")
             return path
         except Exception as e:
-            print(f"[{app_name}] İndirme sırasında bir hata oluştu: {e}")
+            print(f"[{app_name}] ❌ İndirme sırasında bir hata oluştu: {e}")
             return None
         finally: 
             browser.close()
 
 def patch_apk(desktop_jar, patches_mpp, apk_path, app_name):
     config = APPS_CONFIG[app_name]
-    cmd = ["java", "-jar", str(desktop_jar), "patch", "--patches", str(patches_mpp), "--striplibs", "arm64-v8a"]
+    final_path = OUT_DIR / f"{DISPLAY_NAMES[app_name]}-latest.apk"
+    
+    cmd = ["java", "-jar", str(desktop_jar), "patch", "--patches", str(patches_mpp), "--striplibs", "arm64-v8a", "--out", str(final_path)]
+    
     ks = os.environ.get("KS_PATH")
     if ks and Path(ks).exists():
         cmd.extend(["--keystore", ks, "--keystore-password", os.environ.get("KS_PASSWORD", ""), "--keystore-entry-alias", os.environ.get("KS_ALIAS", ""), "--keystore-entry-password", os.environ.get("KEY_PASSWORD", "")])
+        
     for ex in config.get("exclude", []): cmd.extend(["--disable", ex])
     for en in config.get("enable", []): cmd.extend(["--enable", en])
+    
     cmd.append(str(apk_path))
+    
+    print(f"[{app_name}] Yama işlemi başlatılıyor...")
     try:
         res = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        for line in res.stdout.splitlines():
-            if "Saved to" in line:
-                path_str = line.split("Saved to")[-1].strip().lstrip(":")
-                final_path = OUT_DIR / f"{DISPLAY_NAMES[app_name]}-latest.apk"
-                Path(path_str).rename(final_path)
-                return final_path
-    except: return None
+        if final_path.exists():
+            print(f"[{app_name}] ✅ Yama BAŞARILI: {final_path}")
+            return final_path
+        else:
+            print(f"[{app_name}] ⚠️ Uyarı: Patcher hata vermedi ama '{final_path}' dosyası da oluşmadı!")
+            return None
+    except subprocess.CalledProcessError as e:
+        print(f"[{app_name}] ❌ Yama BAŞARISIZ! (Hata Kodu: {e.returncode})")
+        print(f"[{app_name}] --- STDOUT (Çıktı) ---\n{e.stdout}")
+        print(f"[{app_name}] --- STDERR (Hata) ---\n{e.stderr}")
+        return None
+    except Exception as e:
+        print(f"[{app_name}] ❌ Beklenmeyen Yama Hatası: {e}")
+        return None
 
 def create_release(tag, name, body, assets):
     res = requests.post(f"https://api.github.com/repos/{REPO}/releases", headers=get_github_headers(), json={"tag_name": tag, "name": name, "body": body})
@@ -175,7 +196,10 @@ def create_release(tag, name, body, assets):
         requests.post(f"{upload_url}?name={asset.name}", headers={**get_github_headers(), "Content-Type": "application/vnd.android.package-archive"}, data=open(asset, "rb")).raise_for_status()
 
 def main():
-    desktop = download_asset("MorpheApp", "morphe-desktop", ".jar")["path"]
+    # Artık Masaüstü CLI aracı da Prerelease (True) olarak çekilecek.
+    desktop = download_asset("MorpheApp", "morphe-desktop", ".jar", True)["path"]
+    
+    # Tüm yamalar zaten Prerelease (True) olarak ayarlı.
     patches = {
         "morphe": download_asset("MorpheApp", "morphe-patches", ".mpp", True),
         "piko": download_asset("crimera", "piko", ".mpp", True),
@@ -184,19 +208,37 @@ def main():
         "rushi": download_asset("rushiranpise", "morphe-patches", ".mpp", True),
         "bufferk": download_asset("bufferk", "morphe-patches", ".mpp", True)
     }
+    
     patched_apks = []
     for app in PROCESS_ORDER:
         config = APPS_CONFIG[app]
         mpp = patches[config["patchSource"]]["path"]
-        raw = download_apk(app, config, OUT_DIR, get_supported_version(desktop, mpp, config["pkg"]))
+        
+        # 1. Aşama: Yamanın önerdiği sürümü çek
+        target_version = get_supported_version(desktop, mpp, config["pkg"])
+        
+        # 2. Aşama: O sürümü indir
+        raw = download_apk(app, config, OUT_DIR, target_version)
+        
+        # 3. Aşama: Yama işlemini başlat
         if raw:
             patched = patch_apk(desktop, mpp, raw, app)
             if patched: patched_apks.append(patched)
+            
     if patched_apks:
+        print(f"\n🎉 Toplam {len(patched_apks)} APK başarıyla yamalandı. Release oluşturuluyor...")
         tag = f"build-{datetime.now().strftime('%Y-%m-%dT%H-%M-%S')}"
         body = "### Latest Patched APKs\n" + "\n".join([f"* {p.name}" for p in patched_apks])
-        patched_apks.append(download_asset("MorpheApp", "MicroG-RE", ".apk")["path"])
+        
+        # MicroG'yi de ekliyoruz
+        try:
+            patched_apks.append(download_asset("MorpheApp", "MicroG-RE", ".apk", True)["path"])
+        except:
+            print("Uyarı: MicroG indirilemedi.")
+            
         create_release(tag, f"Patched APKs {datetime.now().strftime('%Y-%m-%d')}", body, patched_apks)
+    else:
+        print("\n⚠️ Hiçbir APK yamalanamadığı için Release işlemi atlandı!")
 
 if __name__ == "__main__":
     main()
