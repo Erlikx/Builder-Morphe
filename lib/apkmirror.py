@@ -1,5 +1,6 @@
 import time
 import random
+import requests
 from pathlib import Path
 from playwright.sync_api import sync_playwright
 from playwright_stealth import stealth_sync
@@ -7,10 +8,9 @@ from playwright_stealth import stealth_sync
 def sleep_jitter(base=2):
     time.sleep(base + random.uniform(0.5, 2.5))
 
-def download_apk(app_name, config, out_dir):
+def download_apk(app_name, config, out_dir, target_version=None):
     base_url = config["am_url"]
-    downloaded_file = None
-
+    
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
         context = browser.new_context(
@@ -19,51 +19,54 @@ def download_apk(app_name, config, out_dir):
         )
         page = context.new_page()
         stealth_sync(page)
-
-        # Ağ isteğini yakala (APK linkini bulmak için en garantili yöntem)
-        def handle_request(request):
-            nonlocal downloaded_file
-            if request.url.endswith((".apk", ".apkm")):
-                print(f"🔗 İndirme linki yakalandı: {request.url}")
-                response = requests.get(request.url, headers={"User-Agent": "Mozilla/5.0"})
-                file_name = f"{app_name}-{request.url.split('/')[-1].split('?')[0]}"
-                file_path = out_dir / file_name
-                with open(file_path, "wb") as f:
-                    f.write(response.content)
-                downloaded_file = file_path
-
-        page.on("request", handle_request)
-
+        
         try:
+            # 1. Sayfaya git ve sürümü belirle
             page.goto(base_url, wait_until="domcontentloaded", timeout=45000)
-            sleep_jitter(3)
+            release_url = None
+            if target_version:
+                version_slug = target_version.replace(".", "-")
+                target = page.locator(f"a[href*='-{version_slug}-']").first
+                if target.count() > 0: release_url = f"https://www.apkmirror.com{target.get_attribute('href')}"
             
-            # Sürüm sayfasını bul
-            latest = page.locator("a[href*='-release/']").first
-            page.goto(f"https://www.apkmirror.com{latest.get_attribute('href')}", wait_until="domcontentloaded")
+            if not release_url:
+                latest = page.locator("a[href*='-release/']").first
+                release_url = f"https://www.apkmirror.com{latest.get_attribute('href')}"
             
-            # Varyant tablosunda en uygunu tıkla
+            page.goto(release_url, wait_until="domcontentloaded", timeout=45000)
+            
+            # 2. Mimariyi seç
             page.wait_for_selector(".table-row", timeout=20000)
-            for row in page.locator(".table-row").all():
-                if any(arch in row.inner_text().lower() for arch in ["arm64-v8a", "universal", "noarch"]):
-                    row.locator("a.accent_color").first.click()
+            rows = page.locator(".table-row").all()
+            variant_path = None
+            for row in rows:
+                if any(x in row.inner_text().lower() for x in ["arm64-v8a", "universal", "noarch"]):
+                    variant_path = row.locator("a.accent_color").first.get_attribute("href")
                     break
             
+            page.goto(f"https://www.apkmirror.com{variant_path}", wait_until="domcontentloaded", timeout=45000)
+            
+            # 3. İndirme butonunun ID'sini bul ve URL'yi al
             page.wait_for_selector("a.downloadButton", timeout=20000)
-            page.locator("a.downloadButton").click()
+            download_page_url = f"https://www.apkmirror.com{page.locator('a.downloadButton').get_attribute('href')}"
+            page.goto(download_page_url, wait_until="domcontentloaded", timeout=45000)
             
-            # İndirme sayfasında biraz bekle, handle_request tetiklensin
-            sleep_jitter(10)
+            # 4. Doğrudan indirme linkini al
+            direct_link = page.locator("#download-link").get_attribute("href")
+            print(f"🔗 Direkt link yakalandı: {direct_link}")
             
-            if not downloaded_file:
-                # Eğer trafikten yakalanamadıysa, eski usul buton ara
-                fallback = page.locator("#download-link")
-                if fallback.is_visible():
-                    fallback.click()
-                    sleep_jitter(15)
-
-            return downloaded_file
-
+            # 5. Requests ile indir
+            r = requests.get(direct_link, headers={"User-Agent": "Mozilla/5.0"}, stream=True)
+            r.raise_for_status()
+            
+            file_path = out_dir / f"{app_name}.apk"
+            with open(file_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
+            
+            print(f"📦 BAŞARILI: {file_path}")
+            return file_path
+            
         except Exception as e:
             print(f"❌ APKMirror Hatası: {e}")
             return None
