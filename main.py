@@ -1,10 +1,13 @@
-import os
 import sys
+import os
 import shutil
 import logging
 import asyncio
+import subprocess
 from pathlib import Path
 from datetime import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from lib.github import download_latest_github_asset
 from lib.apkmirror import download_apk, get_latest_listing
@@ -31,6 +34,13 @@ DISPLAY_NAMES = {
     "solid-explorer": "Solid Explorer",
     "brave": "Brave"
 }
+
+APKMIRROR_APPS = [
+    "youtube",
+    "youtube-music",
+    "reddit",
+    "twitter"
+]
 
 APPS_CONFIG = {
     "youtube": {
@@ -177,11 +187,36 @@ async def process_app(app_key, desktop, patches):
 
     selected_version = config.get("force_version")
 
+    # Morphe önerilen sürümü kullan (sadece APKMIRROR_APPS listesindekiler için)
+    if not selected_version and config["name"] in APKMIRROR_APPS:
+        try:
+            list_cmd = [
+                "java", "-jar", desktop,
+                "list-versions",
+                "-f", config["pkg"],
+                "--patches", patches,
+                "--include-experimental"
+            ]
+            result = subprocess.run(list_cmd, capture_output=True, text=True, timeout=60)
+            output = result.stdout + result.stderr
+            versions = extract_youtube_versions(output)
+            if versions:
+                selected_version = pick_latest_version(versions)
+                logger.info(f"✅ Morphe önerilen sürüm: {selected_version}")
+        except Exception as e:
+            logger.warning(f"⚠️ Morphe list-versions başarısız: {e}")
+
+    # Hala sürüm yoksa APKMirror'dan en son sürümü al
     if not selected_version:
-        listing = await get_latest_listing(config["name"])
-        if listing and listing.get("version"):
-            selected_version = listing["version"]
-        else:
+        try:
+            listing = await get_latest_listing(config["name"])
+            if listing and listing.get("version"):
+                selected_version = listing["version"]
+                logger.info(f"✅ APKMirror en son sürüm: {selected_version}")
+            else:
+                raise Exception("Sürüm bulunamadı")
+        except Exception as e:
+            logger.error(f"APKMirror'dan sürüm alınamadı: {e}")
             raise Exception("Uygun bir sürüm numarası belirlenemedi.")
 
     force_build = config.get("force_build")
