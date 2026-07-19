@@ -187,7 +187,6 @@ async def process_app(app_key, desktop, patches):
 
     selected_version = config.get("force_version")
 
-    # Morphe önerilen sürümü kullan (sadece APKMIRROR_APPS listesindekiler için)
     if not selected_version and config["name"] in APKMIRROR_APPS:
         try:
             list_cmd = [
@@ -206,7 +205,6 @@ async def process_app(app_key, desktop, patches):
         except Exception as e:
             logger.warning(f"⚠️ Morphe list-versions başarısız: {e}")
 
-    # Hala sürüm yoksa APKMirror'dan en son sürümü al
     if not selected_version:
         try:
             listing = await get_latest_listing(config["name"])
