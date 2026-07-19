@@ -12,7 +12,6 @@ from pathlib import Path
 import httpx
 from playwright.async_api import async_playwright
 
-# ---------- environment ----------
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
 GITHUB_REPOSITORY = os.environ["GITHUB_REPOSITORY"]
 TARGET_APP = os.environ.get("TARGET_APP", "all")
@@ -304,7 +303,12 @@ async def download_github_asset(owner, repo, match_fn, prerelease=False):
         name = asset["name"]
         if not Path(name).exists() or Path(name).stat().st_size < 1024:
             download_url = asset["browser_download_url"]
-            async with client.stream("GET", download_url, headers={"User-Agent": API_HEADERS["User-Agent"], "Accept": "*/*"}) as r:
+            headers = {
+                "User-Agent": API_HEADERS["User-Agent"],
+                "Accept": "*/*",
+                "Authorization": f"Bearer {GITHUB_TOKEN}",
+            }
+            async with client.stream("GET", download_url, headers=headers, follow_redirects=True) as r:
                 r.raise_for_status()
                 with open(name, "wb") as f:
                     async for chunk in r.aiter_bytes(chunk_size=8192):
