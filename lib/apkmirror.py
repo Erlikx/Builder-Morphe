@@ -151,34 +151,18 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
                 btn_href = "https://www.apkmirror.com" + btn_href
 
             await page.goto(btn_href, wait_until="domcontentloaded")
-            await asyncio.sleep(random.uniform(1.5, 3.0))
+            await asyncio.sleep(random.uniform(2.0, 3.5))
+            await page.wait_for_selector("a#download-link", timeout=30000)
 
-            final_href = await page.evaluate("""() => {
-                const el = document.querySelector("a#download-link")
-                    || document.querySelector("a[href*='key=']")
-                    || document.querySelector("a.downloadButton");
-                return el ? el.href : null;
-            }""")
-            if not final_href:
-                raise Exception("Final download link not found on download page")
-
-            print("⬇️ Downloading via browser session...")
-            response = await page.request.get(final_href)
-            if response.status != 200:
-                raise Exception(f"Download returned status {response.status}")
-
-            body = await response.body()
+            print("⬇️ Clicking final download link...")
             out_dir = Path(__file__).parent.parent / "downloads"
             out_dir.mkdir(parents=True, exist_ok=True)
 
-            filename = None
-            cd = response.headers.get("content-disposition", "")
-            if "filename=" in cd:
-                filename = cd.split("filename=")[-1].strip().strip('"').strip("'")
-            if not filename:
-                filename = final_href.split("?")[0].rstrip("/").split("/")[-1] or "download.apk"
-            file_path = out_dir / filename
-            file_path.write_bytes(body)
+            async with page.expect_download(timeout=120000) as dl_info:
+                await page.click("a#download-link")
+            download = await dl_info.value
+            file_path = out_dir / download.suggested_filename()
+            await download.save_as(str(file_path))
 
             print(f"📦 DONE: {file_path}")
             return str(file_path)
