@@ -36,7 +36,7 @@ DISPLAY_NAMES = {
 APKMIRROR_APPS = [
     "youtube", "youtube-music", "reddit", "twitter",
     "instagram", "niagara-launcher", "github", "smart-launcher",
-    "pydroid3", "brave"
+    "pydroid3", "brave", "wps-office"
 ]
 
 APPS_CONFIG = {
