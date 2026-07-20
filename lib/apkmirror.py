@@ -1,80 +1,194 @@
-import time
+import asyncio
 import random
-import requests
+import os
 from pathlib import Path
-from playwright.sync_api import sync_playwright
-from playwright_stealth import stealth_sync
+from playwright.async_api import async_playwright, Page
+from versions import to_apkmirror_version
 
-def sleep_jitter(base=2):
-    time.sleep(base + random.uniform(0.5, 2.5))
+APP_SITES = {
+    "youtube": {"org": "google-inc", "slug": "youtube"},
+    "youtube-music": {"org": "google-inc", "slug": "youtube-music"},
+    "reddit": {"org": "reddit-inc", "slug": "reddit"},
+    "twitter": {"org": "x-corp", "slug": "twitter", "releaseSlug": "x"},
+    "instagram": {"org": "instagram", "slug": "instagram-instagram"},
+    "niagara-launcher": {"org": "mellowdrop-studio", "slug": "niagara-launcher-🔹-fresh-clean"},
+    "github": {"org": "github", "slug": "github-2"},
+    "smart-launcher": {"org": "smart-launcher-team", "slug": "smart-launcher"},
+    "pydroid3": {"org": "lider-soft-kz", "slug": "pydroid-3-ide-for-python-3"},
+    "brave": {"org": "brave-software", "slug": "brave-browser"},
+    "gboard": {"org": "google-inc", "slug": "gboard"},
+    "speedtest": {"org": "ookla", "slug": "speedtest"},
+    "solid-explorer": {"org": "neatbytes", "slug": "solid-explorer-file-manager"},
+    "wps-office": {"org": "wps-software-pte-ltd", "slug": "wps-office-pdf"}
+}
 
-def download_apk(app_name, config, out_dir, target_version=None):
-    base_url = config["am_url"]
+async def setup_stealth(page: Page):
+    """Inject stealth scripts to avoid bot detection"""
+    await page.add_init_script("""
+        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
+        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+    """)
+
+async def page_exists(page: Page, url: str) -> bool:
+    try:
+        response = await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+        if not response or response.status == 404:
+            return False
+        has_rows = await page.query_selector(".table-row")
+        return bool(has_rows)
+    except Exception:
+        return False
+
+async def resolve_list_url(page: Page, app_config: dict, version: str) -> str:
+    version_slug = to_apkmirror_version(version)
+    name_part = app_config.get("releaseSlug", app_config["slug"])
+    folder_url = f"https://www.apkmirror.com/apk/{app_config['org']}/{app_config['slug']}"
     
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, args=["--no-sandbox", "--disable-blink-features=AutomationControlled"])
-        context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126.0.0.0 Safari/537.36",
-            viewport={"width": 1920, "height": 1080}
+    candidates = [
+        f"{folder_url}/{name_part}-{version_slug}-release/",
+        f"{folder_url}/{name_part}-{version_slug}-release-0-release/",
+        f"{folder_url}/{name_part}-{version_slug}-beta-0-release/",
+        f"{folder_url}/{name_part}-{version_slug}-beta-1-release/"
+    ]
+    
+    for candidate in candidates:
+        print(f"🔎 TRY: {candidate}")
+        if await page_exists(page, candidate):
+            return candidate
+            
+    print("⚠️ No direct match, scanning app listing page...")
+    listing_url = f"{folder_url}/"
+    await page.goto(listing_url, wait_until="domcontentloaded")
+    await asyncio.sleep(random.uniform(1.0, 2.5))  # Anti-bot delay
+    
+    found_url = await page.evaluate("""(slugPart) => {
+        const links = Array.from(document.querySelectorAll("a[href*='-release/']"));
+        const match = links.find(a => a.getAttribute("href").includes(slugPart));
+        return match ? match.href : null;
+    }""", f"-{version_slug}-")
+    
+    if not found_url:
+        raise Exception(f"No APKMirror release page found for version {version}")
+    return found_url
+
+async def download_apk(version: str, app_name: str = "youtube", force_build: str | None = None) -> str:
+    async with async_playwright() as p:
+        # Randomize viewport to avoid fingerprinting
+        viewport = {"width": random.randint(1200, 1920), "height": random.randint(800, 1080)}
+        user_agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0"
+        ]
+        
+        browser = await p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+        context = await browser.new_context(
+            viewport=viewport,
+            user_agent=random.choice(user_agents),
+            accept_downloads=True
         )
-        page = context.new_page()
-        stealth_sync(page)
+        page = await context.new_page()
+        await setup_stealth(page)
         
         try:
-            # 1. Sürüm sayfasını bul
-            page.goto(base_url, wait_until="domcontentloaded", timeout=45000)
-            release_url = None
-            if target_version:
-                version_slug = target_version.replace(".", "-")
-                target = page.locator(f"a[href*='-{version_slug}-']").first
-                if target.count() > 0: release_url = f"https://www.apkmirror.com{target.get_attribute('href')}"
+            app_config = APP_SITES.get(app_name)
+            if not app_config:
+                raise Exception(f'Unknown appName "{app_name}" - not found in APP_SITES')
+                
+            list_url = await resolve_list_url(page, app_config, version)
+            print(f"🌐 LIST: {list_url}")
             
-            if not release_url:
-                latest = page.locator("a[href*='-release/']").first
-                release_url = f"https://www.apkmirror.com{latest.get_attribute('href')}"
+            await page.goto(list_url, wait_until="domcontentloaded")
+            await asyncio.sleep(random.uniform(1.5, 3.0))  # Anti-bot delay
+            await page.wait_for_selector(".table-row")
             
-            page.goto(release_url, wait_until="domcontentloaded", timeout=45000)
+            variant_url = await page.evaluate("""({ targetBuild, app }) => {
+                const rows = document.querySelectorAll(".table-row");
+                let standaloneNodpi = null, standaloneAnyDpi = null, bundleNodpi = null, bundleAnyDpi = null;
+                const allowedArchs = ["universal", "evrensel", "noarch", "arm64-v8a", "arm64-v8a + armeabi-v7a", "arm64-v8a + armeabi"];
+                
+                for (const row of rows) {
+                    const cells = row.querySelectorAll(".table-cell");
+                    if (cells.length < 4) continue;
+                    const link = cells[0].querySelector("a.accent_color");
+                    if (!link) continue;
+                    if (targetBuild && !cells[0].innerText.includes(targetBuild)) continue;
+                    
+                    const badge = cells[0].querySelector(".apkm-badge");
+                    const isBundle = badge ? (badge.innerText.toUpperCase().includes("BUNDLE") || badge.innerText.toUpperCase().includes("PAKET")) : false;
+                    if (app === "instagram" && !isBundle) continue;
+                    
+                    const archText = cells[1].innerText.trim().toLowerCase();
+                    const dpiText = cells[3].innerText.trim().toLowerCase();
+                    const isTargetArch = archText === "" || allowedArchs.some(arch => archText.includes(arch));
+                    const isTargetDpi = dpiText === "" || dpiText.includes("nodpi") || dpiText.includes("anydpi") || /\\d+-640dpi/.test(dpiText);
+                    
+                    if (isTargetArch && isTargetDpi) {
+                        if (!isBundle) {
+                            if (dpiText.includes("nodpi")) standaloneNodpi = link.href;
+                            else standaloneAnyDpi = link.href;
+                        } else {
+                            if (dpiText.includes("nodpi")) bundleNodpi = link.href;
+                            else bundleAnyDpi = link.href;
+                        }
+                    }
+                }
+                return standaloneNodpi || standaloneAnyDpi || bundleNodpi || bundleAnyDpi;
+            }""", {"targetBuild": force_build, "app": app_name})
             
-            # 2. Mimariyi seç
-            page.wait_for_selector(".table-row", timeout=20000)
-            rows = page.locator(".table-row").all()
-            variant_path = None
-            for row in rows:
-                if any(x in row.inner_text().lower() for x in ["arm64-v8a", "universal", "noarch"]):
-                    variant_path = row.locator("a.accent_color").first.get_attribute("href")
-                    break
+            if not variant_url:
+                raise Exception("No matching variant found on APKMirror")
+                
+            print(f"➡️ VARIANT: {variant_url}")
+            await page.goto(variant_url, wait_until="domcontentloaded")
+            await asyncio.sleep(random.uniform(1.0, 2.0))
+            await page.wait_for_selector("a.downloadButton")
             
-            page.goto(f"https://www.apkmirror.com{variant_path}", wait_until="domcontentloaded", timeout=45000)
+            out_dir = Path(__file__).parent.parent / "downloads"
+            out_dir.mkdir(parents=True, exist_ok=True)
             
-            # 3. İndirme butonunun URL'sini al
-            page.wait_for_selector("a.downloadButton", timeout=20000)
-            download_page_url = f"https://www.apkmirror.com{page.locator('a.downloadButton').get_attribute('href')}"
-            page.goto(download_page_url, wait_until="domcontentloaded", timeout=45000)
+            print("⬇️ Clicking main download...")
+            async with page.expect_download(timeout=30000) as download_info:
+                await page.click("a.downloadButton")
             
-            # 4. İndirme linkini al ve URL kontrolü yap
-            page.wait_for_selector("#download-link", timeout=20000)
-            direct_link = page.locator("#download-link").get_attribute("href")
+            download = await download_info.value
+            file_path = out_dir / download.suggested_filename()
+            await download.save_as(str(file_path))
             
-            # Domain kontrolü: Eğer link "http" ile başlamıyorsa, domain ekle
-            if direct_link.startswith("/"):
-                direct_link = f"https://www.apkmirror.com{direct_link}"
+            print(f"📦 DONE: {file_path}")
+            return str(file_path)
             
-            print(f"🔗 Yakalanan İndirme Linki: {direct_link}")
-            
-            # 5. İndir
-            r = requests.get(direct_link, headers={"User-Agent": "Mozilla/5.0"}, stream=True)
-            r.raise_for_status()
-            
-            file_path = out_dir / f"{app_name}.apk"
-            with open(file_path, "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
-            
-            print(f"📦 BAŞARILI: {file_path}")
-            return file_path
-            
-        except Exception as e:
-            print(f"❌ İndirme Hatası: {e}")
-            return None
         finally:
-            browser.close()
+            await browser.close()
+
+async def get_latest_listing(app_name: str) -> dict:
+    app_config = APP_SITES.get(app_name)
+    if not app_config:
+        raise Exception(f'Unknown appName "{app_name}"')
+        
+    async with async_playwright() as p:
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        page = await context.new_page()
+        
+        try:
+            listing_url = f"https://www.apkmirror.com/apk/{app_config['org']}/{app_config['slug']}/"
+            print(f"🌐 LISTING: {listing_url}")
+            await page.goto(listing_url, wait_until="domcontentloaded")
+            await asyncio.sleep(1.5)
+            
+            result = await page.evaluate("""() => {
+                const link = document.querySelector("a[href*='-release/']");
+                if (!link) return null;
+                const row = link.closest("div, li, tr") || link.parentElement;
+                const text = row ? row.innerText : link.innerText;
+                const versionMatch = text.match(/\\d+(?:\\.\\d+)+/);
+                return {
+                    version: versionMatch ? versionMatch[0] : null,
+                    href: link.href
+                };
+            }""")
+            return result or {"version": "latest", "href": listing_url}
+        finally:
+            await browser.close()
