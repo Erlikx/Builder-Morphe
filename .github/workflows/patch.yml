@@ -1,9 +1,9 @@
-name: 🚀 Automated APK Patching
+name: "🚀 Automated APK Patching"
 
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 0 * * 0'
+    - cron: "0 0 * * 0"
 
 jobs:
   patch:
@@ -12,36 +12,36 @@ jobs:
       contents: write
 
     steps:
-      - name: 📥 Checkout Repository
+      - name: "📥 Checkout Repository"
         uses: actions/checkout@v4
 
-      - name: 🐍 Setup Python
+      - name: "🐍 Setup Python"
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.11"
 
-      - name: 📦 Install Dependencies
+      - name: "📦 Install Dependencies"
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 🎭 Install Playwright
+      - name: "🎭 Install Playwright"
         run: |
           playwright install chromium
           playwright install-deps chromium
 
-      - name: 🔑 Setup Keystore (Optional)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+      - name: "🔑 Setup Keystore (Optional)"
+        if: "${{ secrets.KEYSTORE_BASE64 != '' }}"
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > "${{ github.workspace }}/keystore.keystore"
 
-      - name: 🛠️ Run Patcher
+      - name: "🛠️ Run Patcher"
         run: python main.py
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          KS_PATH: ${{ github.workspace }}/keystore.keystore
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          TARGET_APP: ${{ vars.TARGET_APP || 'all' }}
+          GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          GITHUB_REPOSITORY: "${{ github.repository }}"
+          KS_PATH: "${{ github.workspace }}/keystore.keystore"
+          KEYSTORE_PASSWORD: "${{ secrets.KEYSTORE_PASSWORD }}"
+          KEY_ALIAS: "${{ secrets.KEY_ALIAS }}"
+          KEY_PASSWORD: "${{ secrets.KEY_PASSWORD }}"
+          TARGET_APP: "${{ vars.TARGET_APP || 'all' }}"
