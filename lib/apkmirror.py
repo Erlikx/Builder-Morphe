@@ -11,11 +11,11 @@ APP_SITES = {
     "reddit": {"org": "reddit-inc", "slug": "reddit"},
     "twitter": {"org": "x-corp", "slug": "twitter", "releaseSlug": "x"},
     "instagram": {"org": "instagram", "slug": "instagram-instagram"},
-    "niagara-launcher": {"org": "mellowdrop-studio", "slug": "niagara-launcher-🔹-fresh-clean"},
+    "niagara-launcher": {"org": "mellowdrop-studio", "slug": "niagara-launcher-🔹-fresh-clean", "releaseSlug": "niagara-launcher-\u2027-home-screen"},
     "github": {"org": "github", "slug": "github-2"},
-    "smart-launcher": {"org": "smart-launcher-team", "slug": "smart-launcher"},
+    "smart-launcher": {"org": "smart-launcher-team", "slug": "smart-launcher", "releaseSlug": "smart-launcher-6-home-screen"},
     "pydroid3": {"org": "lider-soft-kz", "slug": "pydroid-3-ide-for-python-3"},
-    "brave": {"org": "brave-software", "slug": "brave-browser"},
+    "brave": {"org": "brave-software", "slug": "brave-browser", "releaseSlug": "brave-private-web-browser-vpn"},
     "gboard": {"org": "google-inc", "slug": "gboard"},
     "speedtest": {"org": "ookla", "slug": "speedtest"},
     "solid-explorer": {"org": "neatbytes", "slug": "solid-explorer-file-manager"},
@@ -171,22 +171,26 @@ async def get_latest_listing(app_name: str) -> dict:
         raise Exception(f'Unknown appName "{app_name}"')
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+        browser = await p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+            viewport={"width": 1366, "height": 768}
+        )
         page = await context.new_page()
+        await setup_stealth(page)
 
         try:
             listing_url = f"https://www.apkmirror.com/apk/{app_config['org']}/{app_config['slug']}/"
             print(f"🌐 LISTING: {listing_url}")
             await page.goto(listing_url, wait_until="domcontentloaded")
-            await asyncio.sleep(1.5)
+            await asyncio.sleep(random.uniform(1.5, 2.5))
 
             result = await page.evaluate("""() => {
                 const link = document.querySelector("a[href*='-release/']");
                 if (!link) return null;
                 const row = link.closest("div, li, tr") || link.parentElement;
                 const text = row ? row.innerText : link.innerText;
-                const versionMatch = text.match(/\\d+(?:\\.\\d+)+/);
+                const versionMatch = text.match(/\\d+(?:\\.\\d+)+(?:\\s+build\\s+\\d+)?/);
                 return {
                     version: versionMatch ? versionMatch[0] : null,
                     href: link.href
