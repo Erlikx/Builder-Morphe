@@ -2,6 +2,7 @@ import os
 import sys
 import asyncio
 import shutil
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -15,7 +16,6 @@ from patcher import patch_apk
 from release import ensure_release, upload_patched_apk, upload_microg_once
 from verify import verify_apk_signature
 import apkmirror
-import github_dl
 
 DISPLAY_NAMES = {
     "youtube": "YouTube",
@@ -72,6 +72,12 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
     print(f"\n📦 PROCESSING: {config['name'].upper()}")
 
     is_apkmirror_app = config["name"] in APKMIRROR_APPS
+    if not is_apkmirror_app:
+        raise Exception(
+            f'"{config["name"]}" APKMirror listesinde değil ve github_dl kaldırıldığından '
+            f"indirilemiyor. APKMIRROR_APPS listesine eklenmeden bu uygulama işlenemez."
+        )
+
     selected_version = config.get("forceVersion")
 
     if not selected_version:
@@ -89,18 +95,14 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
             print(f"⚠️ Sürüm listesi alınamadı: {e}")
 
     if not selected_version:
-        if not is_apkmirror_app:
-            selected_version = "latest"
-        else:
-            latest = await apkmirror.get_latest_listing(config["name"])
-            if latest and latest.get("version"):
-                selected_version = latest["version"]
+        latest = await apkmirror.get_latest_listing(config["name"])
+        if latest and latest.get("version"):
+            selected_version = latest["version"]
 
     if not selected_version:
         raise Exception("Uygun bir sürüm numarası belirlenemedi.")
 
-    download_func = apkmirror.download_apk if is_apkmirror_app else github_dl.download_apk
-    apk_path = await download_func(selected_version, config["name"], config.get("forceBuild"))
+    apk_path = await apkmirror.download_apk(selected_version, config["name"], config.get("forceBuild"))
 
     verify_apk_signature(apk_path, config["name"])
 
@@ -172,7 +174,8 @@ async def main():
                 if result:
                     patched_apks_list.append(result)
             except Exception as err:
-                print(f"❌ {app_key.upper()} failed, skipping: {err}")
+                print(f"❌ {app_key.upper()} failed, skipping:")
+                traceback.print_exc()
 
         if patched_apks_list:
             now = datetime.now()
@@ -210,6 +213,7 @@ async def main():
 
     except Exception as err:
         print(f"❌ Fatal error: {err}")
+        traceback.print_exc()
         raise
 
 if __name__ == "__main__":
