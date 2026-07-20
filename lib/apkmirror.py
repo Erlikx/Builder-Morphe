@@ -5,6 +5,17 @@ from pathlib import Path
 from playwright.async_api import async_playwright, Page
 from versions import to_apkmirror_version
 
+_STEALTH_MODE = None
+try:
+    from playwright_stealth import Stealth
+    _STEALTH_MODE = "v2"
+except ImportError:
+    try:
+        from playwright_stealth import stealth_async
+        _STEALTH_MODE = "v1"
+    except ImportError:
+        _STEALTH_MODE = None
+
 APP_SITES = {
     "youtube": {"org": "google-inc", "slug": "youtube"},
     "youtube-music": {"org": "google-inc", "slug": "youtube-music"},
@@ -23,6 +34,16 @@ APP_SITES = {
 }
 
 async def setup_stealth(page: Page):
+    if _STEALTH_MODE == "v2":
+        try:
+            await Stealth().apply_stealth_async(page)
+        except Exception:
+            pass
+    elif _STEALTH_MODE == "v1":
+        try:
+            await stealth_async(page)
+        except Exception:
+            pass
     await page.add_init_script("""
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
