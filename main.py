@@ -10,7 +10,7 @@ if _LIB_DIR.is_dir() and str(_LIB_DIR) not in sys.path:
     sys.path.insert(0, str(_LIB_DIR))
 
 from github import download_latest_github_asset
-from versions import extract_youtube_versions, pick_latest_version
+from versions import extract_youtube_versions
 from patcher import patch_apk
 from release import ensure_release, upload_patched_apk, upload_microg_once
 import apkmirror
@@ -76,7 +76,10 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True, env={**os.environ, "JAVA_TOOL_OPTIONS": "-Dfile.encoding=UTF8"})
             versions = extract_youtube_versions(result.stdout)
             if versions and len(versions) > 0:
-                selected_version = pick_latest_version(versions)
+                selected_version = versions[0]["version"]
+                print(f"🎯 Patcher önerisi: {selected_version}")
+            else:
+                print(f"⚠️ list-versions çıktısı parse edilemedi, ham çıktı:\n{result.stdout}")
         except Exception as e:
             print(f"⚠️ Sürüm listesi alınamadı: {e}")
 
