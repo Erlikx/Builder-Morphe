@@ -23,7 +23,6 @@ APP_SITES = {
 }
 
 async def setup_stealth(page: Page):
-    """Inject stealth scripts to avoid bot detection"""
     await page.add_init_script("""
         Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
         Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
@@ -44,44 +43,43 @@ async def resolve_list_url(page: Page, app_config: dict, version: str) -> str:
     version_slug = to_apkmirror_version(version)
     name_part = app_config.get("releaseSlug", app_config["slug"])
     folder_url = f"https://www.apkmirror.com/apk/{app_config['org']}/{app_config['slug']}"
-    
+
     candidates = [
         f"{folder_url}/{name_part}-{version_slug}-release/",
         f"{folder_url}/{name_part}-{version_slug}-release-0-release/",
         f"{folder_url}/{name_part}-{version_slug}-beta-0-release/",
         f"{folder_url}/{name_part}-{version_slug}-beta-1-release/"
     ]
-    
+
     for candidate in candidates:
         print(f"🔎 TRY: {candidate}")
         if await page_exists(page, candidate):
             return candidate
-            
+
     print("⚠️ No direct match, scanning app listing page...")
     listing_url = f"{folder_url}/"
     await page.goto(listing_url, wait_until="domcontentloaded")
-    await asyncio.sleep(random.uniform(1.0, 2.5))  # Anti-bot delay
-    
+    await asyncio.sleep(random.uniform(1.0, 2.5))
+
     found_url = await page.evaluate("""(slugPart) => {
         const links = Array.from(document.querySelectorAll("a[href*='-release/']"));
         const match = links.find(a => a.getAttribute("href").includes(slugPart));
         return match ? match.href : null;
     }""", f"-{version_slug}-")
-    
+
     if not found_url:
         raise Exception(f"No APKMirror release page found for version {version}")
     return found_url
 
 async def download_apk(version: str, app_name: str = "youtube", force_build: str | None = None) -> str:
     async with async_playwright() as p:
-        # Randomize viewport to avoid fingerprinting
         viewport = {"width": random.randint(1200, 1920), "height": random.randint(800, 1080)}
         user_agents = [
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0"
         ]
-        
+
         browser = await p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
         context = await browser.new_context(
             viewport=viewport,
@@ -90,40 +88,40 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
         )
         page = await context.new_page()
         await setup_stealth(page)
-        
+
         try:
             app_config = APP_SITES.get(app_name)
             if not app_config:
                 raise Exception(f'Unknown appName "{app_name}" - not found in APP_SITES')
-                
+
             list_url = await resolve_list_url(page, app_config, version)
             print(f"🌐 LIST: {list_url}")
-            
+
             await page.goto(list_url, wait_until="domcontentloaded")
-            await asyncio.sleep(random.uniform(1.5, 3.0))  # Anti-bot delay
-            await page.wait_for_selector(".table-row")
-            
+            await asyncio.sleep(random.uniform(1.5, 3.0))
+            await page.wait_for_selector(".table-row", timeout=45000)
+
             variant_url = await page.evaluate("""({ targetBuild, app }) => {
                 const rows = document.querySelectorAll(".table-row");
                 let standaloneNodpi = null, standaloneAnyDpi = null, bundleNodpi = null, bundleAnyDpi = null;
                 const allowedArchs = ["universal", "evrensel", "noarch", "arm64-v8a", "arm64-v8a + armeabi-v7a", "arm64-v8a + armeabi"];
-                
+
                 for (const row of rows) {
                     const cells = row.querySelectorAll(".table-cell");
                     if (cells.length < 4) continue;
                     const link = cells[0].querySelector("a.accent_color");
                     if (!link) continue;
                     if (targetBuild && !cells[0].innerText.includes(targetBuild)) continue;
-                    
+
                     const badge = cells[0].querySelector(".apkm-badge");
                     const isBundle = badge ? (badge.innerText.toUpperCase().includes("BUNDLE") || badge.innerText.toUpperCase().includes("PAKET")) : false;
                     if (app === "instagram" && !isBundle) continue;
-                    
+
                     const archText = cells[1].innerText.trim().toLowerCase();
                     const dpiText = cells[3].innerText.trim().toLowerCase();
                     const isTargetArch = archText === "" || allowedArchs.some(arch => archText.includes(arch));
                     const isTargetDpi = dpiText === "" || dpiText.includes("nodpi") || dpiText.includes("anydpi") || /\\d+-640dpi/.test(dpiText);
-                    
+
                     if (isTargetArch && isTargetDpi) {
                         if (!isBundle) {
                             if (dpiText.includes("nodpi")) standaloneNodpi = link.href;
@@ -136,29 +134,34 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
                 }
                 return standaloneNodpi || standaloneAnyDpi || bundleNodpi || bundleAnyDpi;
             }""", {"targetBuild": force_build, "app": app_name})
-            
+
             if not variant_url:
                 raise Exception("No matching variant found on APKMirror")
-                
+
             print(f"➡️ VARIANT: {variant_url}")
             await page.goto(variant_url, wait_until="domcontentloaded")
             await asyncio.sleep(random.uniform(1.0, 2.0))
-            await page.wait_for_selector("a.downloadButton")
-            
+            await page.wait_for_selector("a.downloadButton", timeout=45000)
+
             out_dir = Path(__file__).parent.parent / "downloads"
             out_dir.mkdir(parents=True, exist_ok=True)
-            
+
             print("⬇️ Clicking main download...")
-            async with page.expect_download(timeout=30000) as download_info:
+            async with page.expect_download(timeout=60000) as download_info:
                 await page.click("a.downloadButton")
-            
+                try:
+                    await page.wait_for_selector("a#download-link", timeout=15000)
+                    await page.click("a#download-link")
+                except Exception:
+                    pass
+
             download = await download_info.value
             file_path = out_dir / download.suggested_filename()
             await download.save_as(str(file_path))
-            
+
             print(f"📦 DONE: {file_path}")
             return str(file_path)
-            
+
         finally:
             await browser.close()
 
@@ -166,18 +169,18 @@ async def get_latest_listing(app_name: str) -> dict:
     app_config = APP_SITES.get(app_name)
     if not app_config:
         raise Exception(f'Unknown appName "{app_name}"')
-        
+
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
         context = await browser.new_context(user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
         page = await context.new_page()
-        
+
         try:
             listing_url = f"https://www.apkmirror.com/apk/{app_config['org']}/{app_config['slug']}/"
             print(f"🌐 LISTING: {listing_url}")
             await page.goto(listing_url, wait_until="domcontentloaded")
             await asyncio.sleep(1.5)
-            
+
             result = await page.evaluate("""() => {
                 const link = document.querySelector("a[href*='-release/']");
                 if (!link) return null;
