@@ -12,7 +12,27 @@ APP_TAGS = {
 
 _TIMEOUT = httpx.Timeout(180.0, connect=20.0)
 _RETRIES = 3
-_HEADERS = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+def _api_headers():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.getenv("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+def _download_headers():
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "*/*",
+    }
+    token = os.getenv("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 async def download_apk(version: str, app_name: str, force_build: str | None = None) -> str:
     tag = APP_TAGS.get(app_name)
@@ -23,7 +43,7 @@ async def download_apk(version: str, app_name: str, force_build: str | None = No
     api_url = f"https://api.github.com/repos/fuckpdf/Depo/releases/tags/{tag}"
 
     async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
-        response = await client.get(api_url, headers=_HEADERS)
+        response = await client.get(api_url, headers=_api_headers())
         response.raise_for_status()
         release_data = response.json()
 
@@ -44,7 +64,7 @@ async def download_apk(version: str, app_name: str, force_build: str | None = No
     for attempt in range(_RETRIES):
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT, follow_redirects=True) as client:
-                async with client.stream("GET", asset["browser_download_url"], headers=_HEADERS) as response:
+                async with client.stream("GET", asset["browser_download_url"], headers=_download_headers()) as response:
                     response.raise_for_status()
                     with open(temp_path, "wb") as f:
                         async for chunk in response.aiter_bytes(chunk_size=65536):
