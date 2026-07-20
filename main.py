@@ -60,7 +60,11 @@ APPS_CONFIG = {
 PROCESS_ORDER = [
     "youtube", "youtube-music", "reddit", "twitter", "instagram",
     "github", "niagara-launcher", "pydroid3", "smart-launcher",
-    "wps-office", "gboard", "speedtest", "solid-explorer", "brave"
+    "wps-office", "solid-explorer", "brave"
+    # "gboard" ve "speedtest" şimdilik devre dışı: bu ikisi APK dosyasını
+    # GitHub'daki fuckpdf/Depo reposundan (github_dl.py) çekiyor.
+    # Sadece patch/desktop-jar dosyaları için GitHub kullanılsın istendiğinden
+    # çıkarıldı. Tekrar açmak için bu iki satırı listeye geri ekle.
 ]
 
 async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
