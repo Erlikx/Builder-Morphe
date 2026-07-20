@@ -15,11 +15,23 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 28
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'oracle'
-          java-version: '28-ea'
+      - name: Install JDK 28 EA Manually
+        run: |
+          JDK_URL="https://download.java.net/java/early_access/jdk28/7/GPL/openjdk-28-ea+7_linux-x64_bin.tar.gz"
+          
+          echo "JDK 28 EA indiriliyor..."
+          wget -q -O jdk28.tar.gz "$JDK_URL"
+          
+          echo "Arşiv çıkartılıyor..."
+          mkdir -p $HOME/jdk28
+          tar -xzf jdk28.tar.gz -C $HOME/jdk28 --strip-components=1
+          
+          echo "Java yolu (PATH) sisteme tanımlanıyor..."
+          echo "JAVA_HOME=$HOME/jdk28" >> $GITHUB_ENV
+          echo "$HOME/jdk28/bin" >> $GITHUB_PATH
+
+      - name: Verify Java Version
+        run: java -version
 
       - name: Set up Python
         uses: actions/setup-python@v5
