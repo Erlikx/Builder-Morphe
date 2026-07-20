@@ -4,15 +4,32 @@ import httpx
 from pathlib import Path
 
 _TIMEOUT = httpx.Timeout(60.0, connect=20.0)
-_RETRIES = 3
+_RETRIES = 5
 _RETRY_STATUS = (429, 500, 502, 503, 504)
+_HEADERS_BASE = {
+    "Accept": "application/vnd.github+json",
+    "User-Agent": "Builder-Morphe-Actions",
+    "X-GitHub-Api-Version": "2022-11-28",
+}
+
+async def _sleep_for_retry(exc, attempt):
+    delay = min(3 * (2 ** attempt), 30)
+    if isinstance(exc, httpx.HTTPStatusError):
+        raw = exc.response.headers.get("Retry-After")
+        if raw and raw.isdigit():
+            delay = max(int(raw), delay)
+    await asyncio.sleep(delay)
 
 async def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) -> dict:
-    url = f"https://api.github.com/repos/{owner}/{repo}/releases" if prerelease else f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}"
-    }
+    if prerelease:
+        url = f"https://api.github.com/repos/{owner}/{repo}/releases?per_page=1"
+    else:
+        url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+
+    headers = dict(_HEADERS_BASE)
+    token = os.getenv("GITHUB_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
 
     last_exc = None
     for attempt in range(_RETRIES):
@@ -32,11 +49,11 @@ async def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) 
                 raise
             last_exc = e
             print(f"⚠️ API returned {e.response.status_code}; retrying ({attempt + 1}/{_RETRIES})...")
-            await asyncio.sleep(2 * (attempt + 1))
+            await _sleep_for_retry(e, attempt)
         except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as e:
             last_exc = e
             print(f"⚠️ API request failed ({e}); retrying ({attempt + 1}/{_RETRIES})...")
-            await asyncio.sleep(2 * (attempt + 1))
+            await _sleep_for_retry(e, attempt)
 
     raise Exception(f"API request failed after {_RETRIES} attempts: {last_exc}")
 
@@ -47,7 +64,7 @@ async def download_asset_with_resume(url: str, output_path: str, expected_size: 
     last_exc = None
     for attempt in range(_RETRIES):
         downloaded = temp_path.stat().st_size if temp_path.exists() else 0
-        headers = {"Accept": "*/*"}
+        headers = {"Accept": "*/*", "User-Agent": "Builder-Morphe-Actions"}
 
         if downloaded > 0:
             headers["Range"] = f"bytes={downloaded}-"
@@ -76,11 +93,11 @@ async def download_asset_with_resume(url: str, output_path: str, expected_size: 
                 raise
             last_exc = e
             print(f"⚠️ Download server error {e.response.status_code}; retrying ({attempt + 1}/{_RETRIES})...")
-            await asyncio.sleep(2 * (attempt + 1))
+            await _sleep_for_retry(e, attempt)
         except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as e:
             last_exc = e
             print(f"⚠️ Download interrupted ({e}); retrying ({attempt + 1}/{_RETRIES})...")
-            await asyncio.sleep(2 * (attempt + 1))
+            await _sleep_for_retry(e, attempt)
 
     raise Exception(f"Download failed after {_RETRIES} attempts: {last_exc}")
 
