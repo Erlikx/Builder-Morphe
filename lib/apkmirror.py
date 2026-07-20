@@ -182,7 +182,10 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             async with page.expect_download(timeout=120000) as dl_info:
                 await page.click("a#download-link")
             download = await dl_info.value
-            file_path = out_dir / download.suggested_filename()
+            fname = download.suggested_filename
+            if callable(fname):
+                fname = fname()
+            file_path = out_dir / fname
             await download.save_as(str(file_path))
 
             print(f"📦 DONE: {file_path}")
