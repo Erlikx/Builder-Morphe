@@ -52,7 +52,7 @@ APPS_CONFIG = {
     "wps-office": {"pkg": "cn.wps.moffice_eng", "name": "wps-office", "patchSource": "hoodles", "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=wps.com", "exclude": []},
     "gboard": {"pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patchSource": "adobo", "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/google/4285F4", "exclude": [], "enable": ["Enable voice typing in incognito", "Enable key shape selection", "Enable clipboard in incognito", "Enable access points menu redesign", "Enable Undo feature", "Enable OCR feature", "Always-incognito mode"]},
     "speedtest": {"pkg": "org.zwanoo.android.speedtest", "name": "speedtest", "patchSource": "rushi", "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=speedtest.net", "exclude": []},
-    "solid-explorer": {"pkg": "pl.solidexplorer2", "name": "solid-explorer", "patchSource": "rushi", "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=solidexplorer.com", "exclude": [], "forceVersion": "3.4.10"},
+    "solid-explorer": {"pkg": "pl.solidexplorer2", "name": "solid-explorer", "patchSource": "rushi", "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=solidexplorer.com", "exclude": []},
     "brave": {"pkg": "com.brave.browser", "name": "brave", "patchSource": "bufferk", "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/brave/FB542B", "exclude": []}
 }
 
