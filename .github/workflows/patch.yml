@@ -73,6 +73,15 @@ jobs:
           TARGET_APP: all
         run: python -u main.py
 
+      - name: Upload debug HTML (on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-html
+          path: downloads/debug/
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Persist known APK signatures
         if: always()
         run: |
