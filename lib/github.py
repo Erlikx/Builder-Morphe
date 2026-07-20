@@ -77,6 +77,15 @@ async def download_asset_with_resume(url: str, output_path: str, expected_size: 
                 async with client.stream("GET", url, headers=headers, follow_redirects=True) as response:
                     response.raise_for_status()
 
+                    # Range istendiği halde sunucu 206 değil de 200 dönüyorsa,
+                    # range desteklenmiyor demektir; dosyanın tamamını yeniden
+                    # yazmak gerekir, yoksa eldeki parça + tam içerik üst üste
+                    # eklenip bozuk bir dosya oluşur.
+                    if downloaded > 0 and response.status_code != 206:
+                        print("⚠️ Sunucu Range desteklemiyor, indirme baştan başlıyor.")
+                        downloaded = 0
+                        mode = "wb"
+
                     with open(temp_path, mode) as f:
                         async for chunk in response.aiter_bytes(chunk_size=8192):
                             f.write(chunk)
@@ -114,9 +123,13 @@ async def download_latest_github_asset(owner: str, repo: str, prerelease: bool =
 
     print(f"🎯 Selected: {asset['name']}")
 
-    if Path(asset["name"]).exists() and Path(asset["name"]).stat().st_size > 1024:
+    cached_path = Path(asset["name"])
+    expected_size = asset.get("size")
+    if cached_path.exists() and expected_size and cached_path.stat().st_size == expected_size:
         print("⚡ Skip cached:", asset["name"])
         return {"name": asset["name"], "body": release.get("body", ""), "tag": release.get("tag_name", "")}
+    elif cached_path.exists():
+        print(f"♻️ Kayıtlı dosya boyutu beklenenle uyuşmuyor, yeniden indiriliyor: {asset['name']}")
 
     print("⬇️ Downloading...")
     await download_asset_with_resume(asset["browser_download_url"], asset["name"], asset["size"])
