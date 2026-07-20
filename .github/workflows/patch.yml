@@ -55,7 +55,9 @@ jobs:
         with:
           authkey: ${{ secrets.TS_AUTHKEY }}
           args: --exit-node=${{ secrets.TS_EXIT_NODE }} --exit-node-allow-lan-access=false
-          ping: ${{ secrets.TS_EXIT_NODE }}
+
+      - name: Ping Exit Node
+        run: tailscale ping ${{ secrets.TS_EXIT_NODE }}
 
       - name: Verify exit IP
         run: |
