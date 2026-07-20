@@ -92,6 +92,36 @@ async def page_exists(page: Page, url: str) -> bool:
             await asyncio.sleep(random.uniform(2.5, 4.5))
     return False
 
+async def _dump_debug_html(page: Page, label: str):
+    """Selector bulunamadığında sayfanın o anki HTML'ini diske kaydeder.
+    APKMirror DOM yapısı değiştiğinde, CI loglarını/artifact'lerini açıp
+    tam olarak neyin değiştiğini görmek için kullanılır."""
+    try:
+        debug_dir = Path(__file__).parent.parent / "downloads" / "debug"
+        debug_dir.mkdir(parents=True, exist_ok=True)
+        safe_label = "".join(c if c.isalnum() else "_" for c in label)[:80]
+        out_path = debug_dir / f"{safe_label}.html"
+        html = await page.content()
+        out_path.write_text(html, encoding="utf-8")
+        print(f"🩺 Debug HTML kaydedildi: {out_path}")
+    except Exception as dump_err:
+        print(f"⚠️ Debug HTML kaydedilemedi: {dump_err}")
+
+async def _wait_for_any_selector(page: Page, selectors: list[str], timeout: int = 20000) -> str:
+    """Birden fazla olası selector'ı paralel dener, ilk eşleşeni döner.
+    APKMirror bir CSS class'ını değiştirirse, tek bir selector'a bağlı
+    kalmak yerine birkaç makul alternatifi denemiş oluruz."""
+    per_selector_timeout = max(timeout // len(selectors), 3000)
+    last_err = None
+    for sel in selectors:
+        try:
+            await page.wait_for_selector(sel, timeout=per_selector_timeout)
+            return sel
+        except Exception as e:
+            last_err = e
+            continue
+    raise last_err or Exception(f"Hiçbir selector eşleşmedi: {selectors}")
+
 async def _goto_and_wait(page: Page, url: str, selector: str, tries: int = 4, settle: float = 3.0, timeout: int = 45000):
     last = None
     for i in range(tries):
@@ -113,6 +143,7 @@ async def _goto_and_wait(page: Page, url: str, selector: str, tries: int = 4, se
             except Exception as e2:
                 last = e2
                 await asyncio.sleep(random.uniform(3.0, 6.0))
+    await _dump_debug_html(page, f"goto_and_wait_failed_{selector}")
     raise last
 
 async def resolve_list_url(page: Page, app_config: dict, version: str) -> str:
@@ -149,16 +180,18 @@ async def resolve_list_url(page: Page, app_config: dict, version: str) -> str:
 async def download_apk(version: str, app_name: str = "youtube", force_build: str | None = None) -> str:
     async with async_playwright() as p:
         viewport = {"width": random.randint(1200, 1920), "height": random.randint(800, 1080)}
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:125.0) Gecko/20100101 Firefox/125.0"
-        ]
 
-        browser = await p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"]
+        )
+        # Not: Elle bir Chrome User-Agent string'i hardcode etmiyoruz.
+        # Bu context, gerçekte kurulu olan Playwright Chromium sürümüyle
+        # eşleşen bir UA otomatik üretir; sabit bir sürüm numarası
+        # (ör. "Chrome/124...") zamanla eskiyip gerçek motor sürümüyle
+        # uyuşmazlık yaratır, bu da bot tespiti için ek bir sinyal olur.
         context = await browser.new_context(
             viewport=viewport,
-            user_agent=random.choice(user_agents),
             accept_downloads=True
         )
         page = await context.new_page()
@@ -182,7 +215,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
                 for (const row of rows) {
                     const cells = row.querySelectorAll(".table-cell");
                     if (cells.length < 4) continue;
-                    const link = cells[0].querySelector("a.accent_color");
+                    const link = cells[0].querySelector("a.accent_color") || cells[0].querySelector("a[href*='/apk/']");
                     if (!link) continue;
                     if (targetBuild && !cells[0].innerText.includes(targetBuild)) continue;
 
@@ -209,13 +242,22 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             }""", {"targetBuild": force_build, "app": app_name})
 
             if not variant_url:
+                await _dump_debug_html(page, "no_variant_found")
                 raise Exception("No matching variant found on APKMirror")
 
             print(f"➡️ VARIANT: {variant_url}")
             await _goto_and_wait(page, variant_url, "a.downloadButton", tries=3, timeout=30000)
 
             print("⬇️ Resolving download URL...")
-            btn_href = await page.get_attribute("a.downloadButton", "href")
+            try:
+                btn_selector = await _wait_for_any_selector(
+                    page, ["a.downloadButton", "a[href*='/download/']", "a:has-text('Download APK')"]
+                )
+            except Exception:
+                await _dump_debug_html(page, "download_button_not_found")
+                raise Exception("İndirme butonu bulunamadı (APKMirror sayfa yapısı değişmiş olabilir)")
+
+            btn_href = await page.get_attribute(btn_selector, "href")
             if not btn_href:
                 raise Exception("Download button has no href")
             if not btn_href.startswith("http"):
@@ -227,8 +269,16 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             out_dir = Path(__file__).parent.parent / "downloads"
             out_dir.mkdir(parents=True, exist_ok=True)
 
+            try:
+                final_selector = await _wait_for_any_selector(
+                    page, ["a#download-link", "a[href*='.apk']", "a:has-text('here')"]
+                )
+            except Exception:
+                await _dump_debug_html(page, "final_download_link_not_found")
+                raise Exception("Son indirme linki bulunamadı (APKMirror sayfa yapısı değişmiş olabilir)")
+
             async with page.expect_download(timeout=120000) as dl_info:
-                await page.click("a#download-link")
+                await page.click(final_selector)
             download = await dl_info.value
             fname = download.suggested_filename
             if callable(fname):
@@ -248,11 +298,11 @@ async def get_latest_listing(app_name: str) -> dict:
         raise Exception(f'Unknown appName "{app_name}"')
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True, args=["--disable-blink-features=AutomationControlled"])
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1366, "height": 768}
+        browser = await p.chromium.launch(
+            headless=True,
+            args=["--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"]
         )
+        context = await browser.new_context(viewport={"width": 1366, "height": 768})
         page = await context.new_page()
         await setup_stealth(page)
 
