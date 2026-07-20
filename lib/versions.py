@@ -1,5 +1,7 @@
 import re
 
+_PATCH_LINE = re.compile(r"^(\d+\.\d+\.\d+(?:[-.][a-zA-Z0-9]+)*)\s+\((\d+)\s+patches?\)", re.IGNORECASE)
+
 def extract_youtube_versions(output: str) -> list[dict]:
     results = []
     lines = output.split("\n")
@@ -7,22 +9,26 @@ def extract_youtube_versions(output: str) -> list[dict]:
 
     for line in lines:
         trimmed = line.strip()
-        if trimmed.startswith("Most common compatible versions"):
+        lower = trimmed.lower()
+        if lower.startswith("most common compatible versions") or lower.startswith("compatible versions"):
             in_section = True
             continue
         if in_section and not trimmed:
             break
         if in_section:
-            match = re.match(r"^(\d+\.\d+\.\d+(?:-[a-zA-Z]+\.\d+)?)\s+\((\d+)\s+patches\)", trimmed)
+            match = _PATCH_LINE.match(trimmed)
             if match:
-                results.append({
-                    "version": match.group(1),
-                    "patches": int(match.group(2))
-                })
+                results.append({"version": match.group(1), "patches": int(match.group(2))})
+
+    if not results:
+        for line in lines:
+            match = _PATCH_LINE.match(line.strip())
+            if match:
+                results.append({"version": match.group(1), "patches": int(match.group(2))})
 
     if not results:
         fallback = re.findall(r"\d+\.\d+\.\d+(?:-[a-zA-Z]+\.\d+)?", output)
-        return [{"version": v, "patches": 0} for v in fallback]
+        return [{"version": v, "patches": 0} for v in dict.fromkeys(fallback)]
 
     return results
 
