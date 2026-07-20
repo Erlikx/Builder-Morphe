@@ -1,8 +1,13 @@
 import os
+import sys
 import asyncio
 import shutil
 from datetime import datetime
 from pathlib import Path
+
+_LIB_DIR = Path(__file__).resolve().parent / "lib"
+if _LIB_DIR.is_dir() and str(_LIB_DIR) not in sys.path:
+    sys.path.insert(0, str(_LIB_DIR))
 
 from github import download_latest_github_asset
 from versions import extract_youtube_versions, pick_latest_version
@@ -28,10 +33,9 @@ DISPLAY_NAMES = {
     "brave": "Brave"
 }
 
-# Now includes Instagram, Niagara, GitHub, Smart Launcher, PyDroid3, Brave
 APKMIRROR_APPS = [
     "youtube", "youtube-music", "reddit", "twitter",
-    "instagram", "niagara-launcher", "github", "smart-launcher", 
+    "instagram", "niagara-launcher", "github", "smart-launcher",
     "pydroid3", "brave"
 ]
 
@@ -61,10 +65,10 @@ PROCESS_ORDER = [
 async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
     config = APPS_CONFIG[app_key]
     print(f"\n📦 PROCESSING: {config['name'].upper()}")
-    
+
     is_apkmirror_app = config["name"] in APKMIRROR_APPS
     selected_version = config.get("forceVersion")
-    
+
     if not selected_version:
         try:
             import subprocess
@@ -75,7 +79,7 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
                 selected_version = pick_latest_version(versions)
         except Exception as e:
             print(f"⚠️ Sürüm listesi alınamadı: {e}")
-            
+
     if not selected_version:
         if not is_apkmirror_app:
             selected_version = "latest"
@@ -83,31 +87,31 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
             latest = await apkmirror.get_latest_listing(config["name"])
             if latest and latest.get("version"):
                 selected_version = latest["version"]
-                
+
     if not selected_version:
         raise Exception("Uygun bir sürüm numarası belirlenemedi.")
-        
+
     download_func = apkmirror.download_apk if is_apkmirror_app else github_dl.download_apk
     apk_path = await download_func(selected_version, config["name"], config.get("forceBuild"))
-    
+
     arg_parts = []
     if config.get("exclude"):
         arg_parts.extend([f'--disable "{p}"' for p in config["exclude"]])
     if config.get("enable"):
         arg_parts.extend([f'--enable "{p}"' for p in config["enable"]])
-        
+
     extra_args = " ".join(arg_parts)
     actual_patched = patch_apk(desktop, patches, apk_path, extra_args, config["arch"])
-    
+
     if not Path(actual_patched).exists():
         return None
-        
+
     app_display_name = DISPLAY_NAMES.get(config["name"], config["name"])
     final_name = f"{app_display_name}-{selected_version}.apk"
     final_path = Path.cwd() / final_name
-    
+
     shutil.copy2(actual_patched, final_path)
-    
+
     return {
         "appName": config["name"],
         "displayName": app_display_name,
@@ -121,19 +125,19 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
 async def main():
     try:
         print("🚀 Starting Morphe Patcher (Python Edition)")
-        
+
         desktop_obj = await download_latest_github_asset(
             owner="MorpheApp", repo="morphe-desktop",
             match_fn=lambda n: "desktop" in n and n.endswith(".jar")
         )
         desktop = desktop_obj["name"]
-        
+
         patches_pool = {"morphe": None, "piko": None, "hoodles": None, "adobo": None, "rushi": None, "bufferk": None}
         notes = {"morphe": "", "piko": "", "hoodles": "", "adobo": "", "rushi": "", "bufferk": ""}
-        
+
         target_app = os.getenv("TARGET_APP", "all")
         apps_to_process = PROCESS_ORDER if target_app == "all" else [target_app]
-        
+
         patch_sources = {
             "morphe": ("MorpheApp", "morphe-patches", "🟢"),
             "piko": ("crimera", "piko", "✖️"),
@@ -142,13 +146,13 @@ async def main():
             "rushi": ("rushiranpise", "morphe-patches", "⚡"),
             "bufferk": ("bufferk", "morphe-patches", "🟣")
         }
-        
+
         for source, (owner, repo, emoji) in patch_sources.items():
             if any(APPS_CONFIG[k]["patchSource"] == source for k in apps_to_process):
                 mpp = await download_latest_github_asset(owner=owner, repo=repo, prerelease=True, match_fn=lambda n: n.endswith(".mpp"))
                 patches_pool[source] = mpp["name"]
                 notes[source] = f"\n<details>\n<summary>{emoji} <b>{source.capitalize()} Release Notes ({mpp['tag']})</b></summary>\n<br>\n\n{mpp['body']}\n\n</details>\n"
-                
+
         patched_apks_list = []
         for app_key in apps_to_process:
             try:
@@ -158,34 +162,34 @@ async def main():
                     patched_apks_list.append(result)
             except Exception as err:
                 print(f"❌ {app_key.upper()} failed, skipping: {err}")
-                
+
         if patched_apks_list:
             now = datetime.now()
             tag_date_str = now.isoformat().replace(":", "-").replace(".", "-")[:19]
             release_tag = f"build-{tag_date_str}"
             release_name = f"Patched APKs · {now.strftime('%d %B %Y')}"
-            
+
             unified_body = "### 📦 Latest Patched APKs\n\n"
             for apk in patched_apks_list:
                 unified_body += f"* <img src=\"{apk['icon']}\" width=\"16\" height=\"16\"> **{apk['displayName']}**\n"
             unified_body += "\n---\n\n"
-            
+
             for source in ["morphe", "piko", "hoodles", "adobo", "rushi", "bufferk"]:
                 if notes[source]:
                     unified_body += notes[source]
-                    
+
             print(f"\n📢 Creating New Release: {release_tag}")
             release = await ensure_release(release_tag, release_name, unified_body)
-            
+
             microg_uploaded = False
             for apk in patched_apks_list:
                 await upload_patched_apk(release, apk["path"])
                 if not microg_uploaded and apk["appName"] in ["youtube", "youtube-music"]:
                     await upload_microg_once(release)
                     microg_uploaded = True
-                    
+
             print("\n🎉 All apps successfully published under one release!")
-            
+
     except Exception as err:
         print(f"❌ Fatal error: {err}")
         raise
