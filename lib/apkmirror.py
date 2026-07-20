@@ -5,16 +5,10 @@ from pathlib import Path
 from playwright.async_api import async_playwright, Page
 from versions import to_apkmirror_version
 
-_STEALTH_MODE = None
-try:
-    from playwright_stealth import Stealth
-    _STEALTH_MODE = "v2"
-except ImportError:
-    try:
-        from playwright_stealth import stealth_async
-        _STEALTH_MODE = "v1"
-    except ImportError:
-        _STEALTH_MODE = None
+REALISTIC_UA = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
 
 APP_SITES = {
     "youtube": {"org": "google-inc", "slug": "youtube"},
@@ -22,9 +16,9 @@ APP_SITES = {
     "reddit": {"org": "reddit-inc", "slug": "reddit"},
     "twitter": {"org": "x-corp", "slug": "twitter", "releaseSlug": "x"},
     "instagram": {"org": "instagram", "slug": "instagram-instagram", "releaseSlug": "instagram"},
-    "niagara-launcher": {"org": "mellowdrop-studio", "slug": "niagara-launcher-🔹-fresh-clean", "releaseSlug": "niagara-launcher-\u2027-home-screen"},
+    "niagara-launcher": {"org": "mellowdrop-studio", "slug": "niagara-launcher-🔹-fresh-clean", "releaseSlug": "niagara-launcher-‧-home-screen"},
     "github": {"org": "github", "slug": "github-2", "releaseSlug": "github"},
-    "smart-launcher": {"org": "smart-launcher-team", "slug": "smart-launcher", "releaseSlug": "smart-launcher-6-\u2027-home-screen"},
+    "smart-launcher": {"org": "smart-launcher-team", "slug": "smart-launcher", "releaseSlug": "smart-launcher-6-‧-home-screen"},
     "pydroid3": {"org": "lider-soft-kz", "slug": "pydroid-3-ide-for-python-3"},
     "brave": {"org": "brave-software", "slug": "brave-browser", "releaseSlug": "brave-private-web-browser-vpn"},
     "gboard": {"org": "google-inc", "slug": "gboard"},
@@ -33,22 +27,24 @@ APP_SITES = {
     "wps-office": {"org": "wps-software-pte-ltd", "slug": "wps-office-pdf", "releaseSlug": "wps-office-pdf-word-sheet"}
 }
 
-async def setup_stealth(page: Page):
-    if _STEALTH_MODE == "v2":
-        try:
-            await Stealth().apply_stealth_async(page)
-        except Exception:
-            pass
-    elif _STEALTH_MODE == "v1":
-        try:
-            await stealth_async(page)
-        except Exception:
-            pass
-    await page.add_init_script("""
-        Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-        Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3] });
-        Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-    """)
+LAUNCH_ARGS = [
+    "--disable-blink-features=AutomationControlled",
+    "--disable-dev-shm-usage",
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+]
+
+
+def _new_context_args(viewport: dict) -> dict:
+    return {
+        "viewport": viewport,
+        "user_agent": REALISTIC_UA,
+        "locale": "en-US",
+        "timezone_id": "America/New_York",
+        "color_scheme": "light",
+        "java_script_enabled": True,
+    }
+
 
 async def _is_cloudflare(page: Page) -> bool:
     try:
@@ -63,6 +59,7 @@ async def _is_cloudflare(page: Page) -> bool:
     except Exception:
         return False
 
+
 async def _wait_cloudflare(page: Page, max_wait: float = 35.0):
     loop = asyncio.get_event_loop()
     end = loop.time() + max_wait
@@ -71,12 +68,19 @@ async def _wait_cloudflare(page: Page, max_wait: float = 35.0):
             return
         await asyncio.sleep(2.0)
 
+
 async def page_exists(page: Page, url: str) -> bool:
     for _ in range(2):
         try:
             response = await page.goto(url, wait_until="domcontentloaded", timeout=20000)
             if not response or response.status == 404:
                 return False
+            if response.status == 403:
+                await asyncio.sleep(random.uniform(3.0, 5.0))
+                await _wait_cloudflare(page)
+                response = await page.reload(wait_until="domcontentloaded", timeout=20000)
+                if response and response.status == 403:
+                    return False
             await asyncio.sleep(random.uniform(2.0, 3.5))
             await _wait_cloudflare(page)
             try:
@@ -92,10 +96,8 @@ async def page_exists(page: Page, url: str) -> bool:
             await asyncio.sleep(random.uniform(2.5, 4.5))
     return False
 
+
 async def _dump_debug_html(page: Page, label: str):
-    """Selector bulunamadığında sayfanın o anki HTML'ini diske kaydeder.
-    APKMirror DOM yapısı değiştiğinde, CI loglarını/artifact'lerini açıp
-    tam olarak neyin değiştiğini görmek için kullanılır."""
     try:
         debug_dir = Path(__file__).parent.parent / "downloads" / "debug"
         debug_dir.mkdir(parents=True, exist_ok=True)
@@ -107,10 +109,8 @@ async def _dump_debug_html(page: Page, label: str):
     except Exception as dump_err:
         print(f"⚠️ Debug HTML kaydedilemedi: {dump_err}")
 
+
 async def _wait_for_any_selector(page: Page, selectors: list[str], timeout: int = 20000) -> str:
-    """Birden fazla olası selector'ı paralel dener, ilk eşleşeni döner.
-    APKMirror bir CSS class'ını değiştirirse, tek bir selector'a bağlı
-    kalmak yerine birkaç makul alternatifi denemiş oluruz."""
     per_selector_timeout = max(timeout // len(selectors), 3000)
     last_err = None
     for sel in selectors:
@@ -122,11 +122,15 @@ async def _wait_for_any_selector(page: Page, selectors: list[str], timeout: int 
             continue
     raise last_err or Exception(f"Hiçbir selector eşleşmedi: {selectors}")
 
+
 async def _goto_and_wait(page: Page, url: str, selector: str, tries: int = 4, settle: float = 3.0, timeout: int = 45000):
     last = None
     for i in range(tries):
         try:
-            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            if response and response.status == 403:
+                await _wait_cloudflare(page, max_wait=20.0)
+                await page.reload(wait_until="domcontentloaded", timeout=30000)
             await asyncio.sleep(random.uniform(settle, settle + 2.0))
             await _wait_cloudflare(page)
             await page.wait_for_selector(selector, timeout=timeout)
@@ -145,6 +149,7 @@ async def _goto_and_wait(page: Page, url: str, selector: str, tries: int = 4, se
                 await asyncio.sleep(random.uniform(3.0, 6.0))
     await _dump_debug_html(page, f"goto_and_wait_failed_{selector}")
     raise last
+
 
 async def resolve_list_url(page: Page, app_config: dict, version: str) -> str:
     version_slug = to_apkmirror_version(version)
@@ -177,25 +182,17 @@ async def resolve_list_url(page: Page, app_config: dict, version: str) -> str:
         raise Exception(f"No APKMirror release page found for version {version}")
     return found_url
 
+
 async def download_apk(version: str, app_name: str = "youtube", force_build: str | None = None) -> str:
     async with async_playwright() as p:
         viewport = {"width": random.randint(1200, 1920), "height": random.randint(800, 1080)}
 
-        browser = await p.chromium.launch(
-            headless=True,
-            args=["--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"]
-        )
-        # Not: Elle bir Chrome User-Agent string'i hardcode etmiyoruz.
-        # Bu context, gerçekte kurulu olan Playwright Chromium sürümüyle
-        # eşleşen bir UA otomatik üretir; sabit bir sürüm numarası
-        # (ör. "Chrome/124...") zamanla eskiyip gerçek motor sürümüyle
-        # uyuşmazlık yaratır, bu da bot tespiti için ek bir sinyal olur.
+        browser = await p.chromium.launch(headless=True, args=LAUNCH_ARGS)
         context = await browser.new_context(
-            viewport=viewport,
-            accept_downloads=True
+            **_new_context_args(viewport),
+            accept_downloads=True,
         )
         page = await context.new_page()
-        await setup_stealth(page)
 
         try:
             app_config = APP_SITES.get(app_name)
@@ -255,7 +252,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
                 )
             except Exception:
                 await _dump_debug_html(page, "download_button_not_found")
-                raise Exception("İndirme butonu bulunamadı (APKMirror sayfa yapısı değişmiş olabilir)")
+                raise Exception("İndirme butonu bulunamadı")
 
             btn_href = await page.get_attribute(btn_selector, "href")
             if not btn_href:
@@ -275,7 +272,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
                 )
             except Exception:
                 await _dump_debug_html(page, "final_download_link_not_found")
-                raise Exception("Son indirme linki bulunamadı (APKMirror sayfa yapısı değişmiş olabilir)")
+                raise Exception("Son indirme linki bulunamadı")
 
             async with page.expect_download(timeout=120000) as dl_info:
                 await page.click(final_selector)
@@ -292,25 +289,23 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
         finally:
             await browser.close()
 
+
 async def get_latest_listing(app_name: str) -> dict:
     app_config = APP_SITES.get(app_name)
     if not app_config:
         raise Exception(f'Unknown appName "{app_name}"')
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=["--disable-blink-features=AutomationControlled", "--disable-dev-shm-usage"]
-        )
-        context = await browser.new_context(viewport={"width": 1366, "height": 768})
+        browser = await p.chromium.launch(headless=True, args=LAUNCH_ARGS)
+        context = await browser.new_context(**_new_context_args({"width": 1366, "height": 768}))
         page = await context.new_page()
-        await setup_stealth(page)
 
         try:
             listing_url = f"https://www.apkmirror.com/apk/{app_config['org']}/{app_config['slug']}/"
             print(f"🌐 LISTING: {listing_url}")
             await page.goto(listing_url, wait_until="domcontentloaded")
             await asyncio.sleep(random.uniform(1.5, 2.5))
+            await _wait_cloudflare(page)
 
             result = await page.evaluate("""() => {
                 const link = document.querySelector("a[href*='-release/']");
