@@ -18,8 +18,8 @@ jobs:
       - name: Set up JDK 28
         uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
-          java-version: '28'
+          distribution: 'oracle'
+          java-version: '28-ea'
 
       - name: Set up Python
         uses: actions/setup-python@v5
