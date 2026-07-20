@@ -36,7 +36,18 @@ def patch_apk(desktop_jar: str, patches_mpp: str, apk_path: str, extra_args: str
 
     cmd.append(str(apk_path))
 
-    print(f"🖥️ EXECUTING: {' '.join(cmd)}")
+    _SENSITIVE_FLAGS = {"--keystore-password", "--keystore-entry-password"}
+    safe_cmd = []
+    mask_next = False
+    for part in cmd:
+        if mask_next:
+            safe_cmd.append("****")
+            mask_next = False
+        else:
+            safe_cmd.append(part)
+        if part in _SENSITIVE_FLAGS:
+            mask_next = True
+    print(f"🖥️ EXECUTING: {' '.join(safe_cmd)}")
 
     try:
         result = subprocess.run(
