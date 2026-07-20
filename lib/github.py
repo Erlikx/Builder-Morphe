@@ -5,6 +5,7 @@ from pathlib import Path
 
 _TIMEOUT = httpx.Timeout(60.0, connect=20.0)
 _RETRIES = 3
+_RETRY_STATUS = (429, 500, 502, 503, 504)
 
 async def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) -> dict:
     url = f"https://api.github.com/repos/{owner}/{repo}/releases" if prerelease else f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
@@ -26,6 +27,12 @@ async def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) 
                         raise Exception("No releases found")
                     return data[0]
                 return data
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code not in _RETRY_STATUS:
+                raise
+            last_exc = e
+            print(f"⚠️ API returned {e.response.status_code}; retrying ({attempt + 1}/{_RETRIES})...")
+            await asyncio.sleep(2 * (attempt + 1))
         except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as e:
             last_exc = e
             print(f"⚠️ API request failed ({e}); retrying ({attempt + 1}/{_RETRIES})...")
@@ -64,6 +71,12 @@ async def download_asset_with_resume(url: str, output_path: str, expected_size: 
 
                     temp_path.rename(file_path)
                     return str(file_path)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code not in _RETRY_STATUS:
+                raise
+            last_exc = e
+            print(f"⚠️ Download server error {e.response.status_code}; retrying ({attempt + 1}/{_RETRIES})...")
+            await asyncio.sleep(2 * (attempt + 1))
         except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as e:
             last_exc = e
             print(f"⚠️ Download interrupted ({e}); retrying ({attempt + 1}/{_RETRIES})...")
