@@ -1,6 +1,6 @@
 import re
 
-_PATCH_LINE = re.compile(r"^(\d+\.\d+\.\d+(?:[-.][a-zA-Z0-9]+)*)\s+\((\d+)\s+patches?\)", re.IGNORECASE)
+_PATCH_LINE = re.compile(r"^(\d+(?:\.\d+)+(?:[_.\- ]+[a-zA-Z0-9]+)*)\s+\((\d+)\s+patches?\)", re.IGNORECASE)
 
 def extract_youtube_versions(output: str) -> list[dict]:
     results = []
@@ -27,7 +27,7 @@ def extract_youtube_versions(output: str) -> list[dict]:
                 results.append({"version": match.group(1), "patches": int(match.group(2))})
 
     if not results:
-        fallback = re.findall(r"\d+\.\d+\.\d+(?:-[a-zA-Z]+\.\d+)?", output)
+        fallback = re.findall(r"\d+(?:\.\d+)+", output)
         return [{"version": v, "patches": 0} for v in dict.fromkeys(fallback)]
 
     return results
@@ -53,4 +53,4 @@ def pick_latest_version(version_list: list[dict]) -> str | None:
     return sorted_list[0]["version"]
 
 def to_apkmirror_version(version: str) -> str:
-    return version.replace(".", "-").replace(" ", "-")
+    return version.replace(".", "-").replace(" ", "-").replace("_", "-")
