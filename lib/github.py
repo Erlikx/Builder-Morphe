@@ -1,38 +1,73 @@
 import os
-import requests
+import httpx
 from pathlib import Path
 
-def get_headers():
-    headers = {"Accept": "application/vnd.github+json"}
-    token = os.environ.get("GITHUB_TOKEN")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
-
-def download_asset(owner, repo, match_str, prerelease=False):
-    print(f"📦 Fetch release: {owner}/{repo}")
-    url = f"https://api.github.com/repos/{owner}/{repo}/releases"
-    if not prerelease:
-        url += "/latest"
+async def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) -> dict:
+    url = f"https://api.github.com/repos/{owner}/{repo}/releases" if prerelease else f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}"
+    }
+    
+    async with httpx.AsyncClient() as client:
+        response = await client.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
         
-    res = requests.get(url, headers=get_headers())
-    res.raise_for_status()
+        if prerelease:
+            if not isinstance(data, list) or len(data) == 0:
+                raise Exception("No releases found")
+            return data[0]
+        return data
+
+async def download_asset_with_resume(url: str, output_path: str, expected_size: int | None = None) -> str:
+    file_path = Path(output_path).resolve()
+    temp_path = file_path.with_suffix(file_path.suffix + ".part")
     
-    data = res.json()
-    release = data[0] if prerelease and isinstance(data, list) else data
+    downloaded = temp_path.stat().st_size if temp_path.exists() else 0
+    headers = {"Accept": "*/*"}
     
-    asset = next((a for a in release.get("assets", []) if match_str in a["name"]), None)
+    if downloaded > 0:
+        headers["Range"] = f"bytes={downloaded}-"
+        print(f"↩️ Resume at {downloaded} bytes")
+        
+    mode = "ab" if downloaded > 0 else "wb"
+    
+    async with httpx.AsyncClient() as client:
+        async with client.stream("GET", url, headers=headers, follow_redirects=True) as response:
+            response.raise_for_status()
+            
+            with open(temp_path, mode) as f:
+                async for chunk in response.aiter_bytes(chunk_size=8192):
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    
+            if expected_size and downloaded != expected_size:
+                temp_path.unlink(missing_ok=True)
+                raise Exception(f"Size mismatch: {downloaded}/{expected_size}")
+                
+            temp_path.rename(file_path)
+            return str(file_path)
+
+async def download_latest_github_asset(owner: str, repo: str, prerelease: bool = False, match_fn: callable = None) -> dict:
+    print(f"\n📦 Fetch release: {owner}/{repo}")
+    release = await fetch_latest_release(owner, repo, prerelease)
+    
+    if not release.get("assets"):
+        raise Exception(f"Repo {owner}/{repo} has no assets")
+        
+    asset = next((a for a in release["assets"] if match_fn(a["name"])), None)
     if not asset:
-        raise Exception(f"Asset bulunamadı: {match_str}")
+        raise Exception("❌ Asset not found")
         
     print(f"🎯 Selected: {asset['name']}")
-    out_path = Path(asset["name"])
     
-    if not out_path.exists():
-        r = requests.get(asset["browser_download_url"], stream=True)
-        r.raise_for_status()
-        with open(out_path, 'wb') as f:
-            for chunk in r.iter_content(chunk_size=8192):
-                f.write(chunk)
-                
-    return {"path": out_path, "body": release.get("body", ""), "tag": release.get("tag_name", "")}
+    if Path(asset["name"]).exists() and Path(asset["name"]).stat().st_size > 1024:
+        print("⚡ Skip cached:", asset["name"])
+        return {"name": asset["name"], "body": release.get("body", ""), "tag": release.get("tag_name", "")}
+        
+    print("⬇️ Downloading...")
+    await download_asset_with_resume(asset["browser_download_url"], asset["name"], asset["size"])
+    print("✅ Done:", asset["name"])
+    
+    return {"name": asset["name"], "body": release.get("body", ""), "tag": release.get("tag_name", "")}
