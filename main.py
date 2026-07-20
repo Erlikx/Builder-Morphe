@@ -36,7 +36,7 @@ DISPLAY_NAMES = {
 APKMIRROR_APPS = [
     "youtube", "youtube-music", "reddit", "twitter",
     "instagram", "niagara-launcher", "github", "smart-launcher",
-    "pydroid3", "brave", "wps-office"
+    "pydroid3", "brave", "wps-office", "solid-explorer"
 ]
 
 APPS_CONFIG = {
@@ -52,7 +52,7 @@ APPS_CONFIG = {
     "wps-office": {"pkg": "cn.wps.moffice_eng", "name": "wps-office", "patchSource": "hoodles", "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=wps.com", "exclude": []},
     "gboard": {"pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patchSource": "adobo", "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/google/4285F4", "exclude": [], "enable": ["Enable voice typing in incognito", "Enable key shape selection", "Enable clipboard in incognito", "Enable access points menu redesign", "Enable Undo feature", "Enable OCR feature", "Always-incognito mode"]},
     "speedtest": {"pkg": "org.zwanoo.android.speedtest", "name": "speedtest", "patchSource": "rushi", "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=speedtest.net", "exclude": []},
-    "solid-explorer": {"pkg": "pl.solidexplorer2", "name": "solid-explorer", "patchSource": "rushi", "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=solidexplorer.com", "exclude": []},
+    "solid-explorer": {"pkg": "pl.solidexplorer2", "name": "solid-explorer", "patchSource": "rushi", "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=solidexplorer.com", "exclude": [], "forceVersion": "3.4.10"},
     "brave": {"pkg": "com.brave.browser", "name": "brave", "patchSource": "bufferk", "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/brave/FB542B", "exclude": []}
 }
 
@@ -185,12 +185,19 @@ async def main():
             print(f"\n📢 Creating New Release: {release_tag}")
             release = await ensure_release(release_tag, release_name, unified_body)
 
-            microg_uploaded = False
+            uploaded_names = set()
             for apk in patched_apks_list:
-                await upload_patched_apk(release, apk["path"])
-                if not microg_uploaded and apk["appName"] in ["youtube", "youtube-music"]:
+                try:
+                    await upload_patched_apk(release, apk["path"])
+                    uploaded_names.add(apk["appName"])
+                except Exception as up_err:
+                    print(f"⚠️ {apk['name']} yüklenemedi (release'e eklenemedi): {up_err}")
+
+            if {"youtube", "youtube-music"} & uploaded_names:
+                try:
                     await upload_microg_once(release)
-                    microg_uploaded = True
+                except Exception as mg_err:
+                    print(f"⚠️ MicroG yüklenemedi: {mg_err}")
 
             print("\n🎉 All apps successfully published under one release!")
 
