@@ -1,21 +1,21 @@
 name: 🚀 Automated APK Patching
 
 on:
-  workflow_dispatch: # Manuel tetikleme için
+  workflow_dispatch:
   schedule:
-    - cron: '0 0 * * 0' # Her Pazar gece 00:00'da çalışır (UTC)
+    - cron: '0 0 * * 0'
 
 jobs:
   patch:
     runs-on: ubuntu-latest
     permissions:
-      contents: write # Release oluşturmak için gerekli izin
+      contents: write
 
     steps:
       - name: 📥 Checkout Repository
         uses: actions/checkout@v4
 
-      - name: 🐍 Set up Python
+      - name: 🐍 Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -25,12 +25,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: 🎭 Install Playwright Browsers
+      - name: 🎭 Install Playwright
         run: |
           playwright install chromium
           playwright install-deps chromium
 
-      - name: 🔑 Setup Custom Keystore (Opsiyonel)
+      - name: 🔑 Setup Keystore (Optional)
         if: env.KS_PATH != ''
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > ${{ env.KS_PATH }}
