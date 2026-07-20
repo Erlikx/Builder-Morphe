@@ -31,9 +31,15 @@ jobs:
           playwright install-deps chromium
 
       - name: "🔑 Setup Keystore (Optional)"
-        if: "${{ secrets.KEYSTORE_BASE64 !=  }}"
+        env:
+          KEYSTORE_BASE64: "${{ secrets.KEYSTORE_BASE64 }}"
         run: |
-          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > "${{ github.workspace }}/keystore.keystore"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 --decode > "${{ github.workspace }}/keystore.keystore"
+            echo "Keystore decoded to ${{ github.workspace }}/keystore.keystore"
+          else
+            echo "No KEYSTORE_BASE64 secret set; skipping keystore setup."
+          fi
 
       - name: "🛠️ Run Patcher"
         run: python main.py
