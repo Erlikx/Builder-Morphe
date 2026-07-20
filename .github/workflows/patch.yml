@@ -15,11 +15,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up JDK 25 (Temurin LTS)
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '25'
+      - name: Install JDK 28 EA Manually
+        run: |
+          JDK_URL="https://download.java.net/java/early_access/jdk28/7/GPL/openjdk-28-ea+7_linux-x64_bin.tar.gz"
+          
+          echo "JDK 28 EA indiriliyor..."
+          wget -q -O jdk28.tar.gz "$JDK_URL"
+          
+          echo "Arşiv çıkartılıyor..."
+          mkdir -p $HOME/jdk28
+          tar -xzf jdk28.tar.gz -C $HOME/jdk28 --strip-components=1
+          
+          echo "Java yolu (PATH) sisteme tanımlanıyor..."
+          echo "JAVA_HOME=$HOME/jdk28" >> $GITHUB_ENV
+          echo "$HOME/jdk28/bin" >> $GITHUB_PATH
 
       - name: Verify Java Version
         run: java -version
@@ -27,7 +36,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.11'
 
       - name: Install dependencies
         run: |
@@ -38,17 +47,6 @@ jobs:
         run: |
           playwright install chromium
           playwright install-deps chromium
-
-      - name: Set up Android SDK (apksigner)
-        uses: android-actions/setup-android@v3
-
-      - name: Install apksigner build-tools
-        run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager --install "build-tools;35.0.0"
-          BUILD_TOOLS_DIR="$ANDROID_HOME/build-tools/35.0.0"
-          echo "APKSIGNER_PATH=$BUILD_TOOLS_DIR/apksigner" >> $GITHUB_ENV
-          echo "$BUILD_TOOLS_DIR" >> $GITHUB_PATH
 
       - name: Decode keystore
         env:
@@ -61,9 +59,20 @@ jobs:
             echo "No KEYSTORE_BASE64 secret set; skipping keystore setup."
           fi
 
+      - name: Connect to Tailscale (telefon üzerinden çık)
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+          args: --exit-node=${{ secrets.TS_EXIT_NODE }} --exit-node-allow-lan-access=false
+
+      - name: Verify exit IP
+        run: |
+          echo "Şu anki çıkış IP:"
+          curl -s ifconfig.me
+          echo ""
+
       - name: Run patcher
         env:
-          PYTHONUNBUFFERED: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           KS_PATH: ${{ github.workspace }}/keystore.keystore
@@ -71,26 +80,4 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           TARGET_APP: all
-        run: python -u main.py
-
-      - name: Upload debug HTML (on failure)
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: debug-html
-          path: downloads/debug/
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Persist known APK signatures
-        if: always()
-        run: |
-          if [ -f known_signatures.json ] && [ -n "$(git status --porcelain known_signatures.json)" ]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add known_signatures.json
-            git commit -m "chore: update known APK signatures"
-            git push
-          else
-            echo "No signature changes to commit."
-          fi
+        run: python main.py
