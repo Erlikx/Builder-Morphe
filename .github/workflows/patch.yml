@@ -13,28 +13,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
-      - name: Install JDK 28 EA Manually
-        run: |
-          JDK_URL="https://download.java.net/java/early_access/jdk28/7/GPL/openjdk-28-ea+7_linux-x64_bin.tar.gz"
-          
-          echo "JDK 28 EA indiriliyor..."
-          wget -q -O jdk28.tar.gz "$JDK_URL"
-          
-          echo "Arşiv çıkartılıyor..."
-          mkdir -p $HOME/jdk28
-          tar -xzf jdk28.tar.gz -C $HOME/jdk28 --strip-components=1
-          
-          echo "Java yolu (PATH) sisteme tanımlanıyor..."
-          echo "JAVA_HOME=$HOME/jdk28" >> $GITHUB_ENV
-          echo "$HOME/jdk28/bin" >> $GITHUB_PATH
+      - name: Set up JDK (latest)
+        uses: actions/setup-java@v5
+        with:
+          distribution: 'temurin'
+          java-version: 'latest'
 
       - name: Verify Java Version
         run: java -version
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
 
@@ -60,10 +51,11 @@ jobs:
           fi
 
       - name: Connect to Tailscale (telefon üzerinden çık)
-        uses: tailscale/github-action@v2
+        uses: tailscale/github-action@v4
         with:
           authkey: ${{ secrets.TS_AUTHKEY }}
           args: --exit-node=${{ secrets.TS_EXIT_NODE }} --exit-node-allow-lan-access=false
+          ping: ${{ secrets.TS_EXIT_NODE }}
 
       - name: Verify exit IP
         run: |
