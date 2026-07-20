@@ -143,21 +143,42 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             await asyncio.sleep(random.uniform(1.0, 2.0))
             await page.wait_for_selector("a.downloadButton", timeout=45000)
 
+            print("⬇️ Resolving download URL...")
+            btn_href = await page.get_attribute("a.downloadButton", "href")
+            if not btn_href:
+                raise Exception("Download button has no href")
+            if not btn_href.startswith("http"):
+                btn_href = "https://www.apkmirror.com" + btn_href
+
+            await page.goto(btn_href, wait_until="domcontentloaded")
+            await asyncio.sleep(random.uniform(1.5, 3.0))
+
+            final_href = await page.evaluate("""() => {
+                const el = document.querySelector("a#download-link")
+                    || document.querySelector("a[href*='key=']")
+                    || document.querySelector("a.downloadButton");
+                return el ? el.href : null;
+            }""")
+            if not final_href:
+                raise Exception("Final download link not found on download page")
+
+            print("⬇️ Downloading via browser session...")
+            response = await page.request.get(final_href)
+            if response.status != 200:
+                raise Exception(f"Download returned status {response.status}")
+
+            body = await response.body()
             out_dir = Path(__file__).parent.parent / "downloads"
             out_dir.mkdir(parents=True, exist_ok=True)
 
-            print("⬇️ Clicking main download...")
-            async with page.expect_download(timeout=60000) as download_info:
-                await page.click("a.downloadButton")
-                try:
-                    await page.wait_for_selector("a#download-link", timeout=15000)
-                    await page.click("a#download-link")
-                except Exception:
-                    pass
-
-            download = await download_info.value
-            file_path = out_dir / download.suggested_filename()
-            await download.save_as(str(file_path))
+            filename = None
+            cd = response.headers.get("content-disposition", "")
+            if "filename=" in cd:
+                filename = cd.split("filename=")[-1].strip().strip('"').strip("'")
+            if not filename:
+                filename = final_href.split("?")[0].rstrip("/").split("/")[-1] or "download.apk"
+            file_path = out_dir / filename
+            file_path.write_bytes(body)
 
             print(f"📦 DONE: {file_path}")
             return str(file_path)
