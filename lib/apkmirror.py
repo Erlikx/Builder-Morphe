@@ -21,16 +21,16 @@ APP_SITES = {
     "youtube-music": {"org": "google-inc", "slug": "youtube-music"},
     "reddit": {"org": "reddit-inc", "slug": "reddit"},
     "twitter": {"org": "x-corp", "slug": "twitter", "releaseSlug": "x"},
-    "instagram": {"org": "instagram", "slug": "instagram-instagram"},
+    "instagram": {"org": "instagram", "slug": "instagram-instagram", "releaseSlug": "instagram"},
     "niagara-launcher": {"org": "mellowdrop-studio", "slug": "niagara-launcher-🔹-fresh-clean", "releaseSlug": "niagara-launcher-\u2027-home-screen"},
-    "github": {"org": "github", "slug": "github-2"},
-    "smart-launcher": {"org": "smart-launcher-team", "slug": "smart-launcher", "releaseSlug": "smart-launcher-6-home-screen"},
+    "github": {"org": "github", "slug": "github-2", "releaseSlug": "github"},
+    "smart-launcher": {"org": "smart-launcher-team", "slug": "smart-launcher", "releaseSlug": "smart-launcher-6-\u2027-home-screen"},
     "pydroid3": {"org": "lider-soft-kz", "slug": "pydroid-3-ide-for-python-3"},
     "brave": {"org": "brave-software", "slug": "brave-browser", "releaseSlug": "brave-private-web-browser-vpn"},
     "gboard": {"org": "google-inc", "slug": "gboard"},
     "speedtest": {"org": "ookla", "slug": "speedtest"},
     "solid-explorer": {"org": "neatbytes", "slug": "solid-explorer-file-manager"},
-    "wps-office": {"org": "wps-software-pte-ltd", "slug": "wps-office-pdf"}
+    "wps-office": {"org": "wps-software-pte-ltd", "slug": "wps-office-pdf", "releaseSlug": "wps-office-pdf-word-sheet"}
 }
 
 async def setup_stealth(page: Page):
