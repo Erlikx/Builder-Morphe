@@ -13,6 +13,7 @@ from github import download_latest_github_asset
 from versions import extract_youtube_versions
 from patcher import patch_apk
 from release import ensure_release, upload_patched_apk, upload_microg_once
+from verify import verify_apk_signature
 import apkmirror
 import github_dl
 
@@ -96,6 +97,8 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
 
     download_func = apkmirror.download_apk if is_apkmirror_app else github_dl.download_apk
     apk_path = await download_func(selected_version, config["name"], config.get("forceBuild"))
+
+    verify_apk_signature(apk_path, config["name"])
 
     arg_parts = []
     if config.get("exclude"):
