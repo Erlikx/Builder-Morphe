@@ -50,15 +50,70 @@ async def setup_stealth(page: Page):
         Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
     """)
 
-async def page_exists(page: Page, url: str) -> bool:
+async def _is_cloudflare(page: Page) -> bool:
     try:
-        response = await page.goto(url, wait_until="domcontentloaded", timeout=15000)
-        if not response or response.status == 404:
-            return False
-        has_rows = await page.query_selector(".table-row")
-        return bool(has_rows)
+        return await page.evaluate("""() => {
+            const t = (document.body && document.body.innerText) || '';
+            const turnstile = !!document.querySelector("iframe[src*='challenges.cloudflare.com']");
+            const challenge = !!document.querySelector("#challenge-running, .cf-browser-verification, #cf-please-wait, #challenge-form, .main-content > #challenge-form");
+            const txt = /just a moment|checking your browser|verify you are human|checking if the site connection is secure|attention required|one more step/i.test(t);
+            const noRows = document.querySelectorAll('.table-row').length === 0;
+            return turnstile || challenge || (txt && noRows);
+        }""")
     except Exception:
         return False
+
+async def _wait_cloudflare(page: Page, max_wait: float = 35.0):
+    loop = asyncio.get_event_loop()
+    end = loop.time() + max_wait
+    while loop.time() < end:
+        if not await _is_cloudflare(page):
+            return
+        await asyncio.sleep(2.0)
+
+async def page_exists(page: Page, url: str) -> bool:
+    for _ in range(2):
+        try:
+            response = await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+            if not response or response.status == 404:
+                return False
+            await asyncio.sleep(random.uniform(2.0, 3.5))
+            await _wait_cloudflare(page)
+            try:
+                await page.wait_for_selector(".table-row", timeout=20000)
+                return True
+            except Exception:
+                await page.reload(wait_until="domcontentloaded", timeout=20000)
+                await asyncio.sleep(random.uniform(2.5, 4.0))
+                await _wait_cloudflare(page)
+                await page.wait_for_selector(".table-row", timeout=20000)
+                return True
+        except Exception:
+            await asyncio.sleep(random.uniform(2.5, 4.5))
+    return False
+
+async def _goto_and_wait(page: Page, url: str, selector: str, tries: int = 4, settle: float = 3.0, timeout: int = 45000):
+    last = None
+    for i in range(tries):
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            await asyncio.sleep(random.uniform(settle, settle + 2.0))
+            await _wait_cloudflare(page)
+            await page.wait_for_selector(selector, timeout=timeout)
+            return
+        except Exception as e:
+            last = e
+            print(f"🔄 '{selector}' beklenemedi, CF/retry ({i + 1}/{tries})...")
+            try:
+                await page.reload(wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(random.uniform(3.0, 5.0))
+                await _wait_cloudflare(page)
+                await page.wait_for_selector(selector, timeout=timeout)
+                return
+            except Exception as e2:
+                last = e2
+                await asyncio.sleep(random.uniform(3.0, 6.0))
+    raise last
 
 async def resolve_list_url(page: Page, app_config: dict, version: str) -> str:
     version_slug = to_apkmirror_version(version)
@@ -79,8 +134,7 @@ async def resolve_list_url(page: Page, app_config: dict, version: str) -> str:
 
     print("⚠️ No direct match, scanning app listing page...")
     listing_url = f"{folder_url}/"
-    await page.goto(listing_url, wait_until="domcontentloaded")
-    await asyncio.sleep(random.uniform(1.0, 2.5))
+    await _goto_and_wait(page, listing_url, "a[href*='-release/']", tries=2, timeout=20000)
 
     found_url = await page.evaluate("""(slugPart) => {
         const links = Array.from(document.querySelectorAll("a[href*='-release/']"));
@@ -118,9 +172,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             list_url = await resolve_list_url(page, app_config, version)
             print(f"🌐 LIST: {list_url}")
 
-            await page.goto(list_url, wait_until="domcontentloaded")
-            await asyncio.sleep(random.uniform(1.5, 3.0))
-            await page.wait_for_selector(".table-row", timeout=45000)
+            await _goto_and_wait(page, list_url, ".table-row", tries=3, timeout=30000)
 
             variant_url = await page.evaluate("""({ targetBuild, app }) => {
                 const rows = document.querySelectorAll(".table-row");
@@ -160,9 +212,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
                 raise Exception("No matching variant found on APKMirror")
 
             print(f"➡️ VARIANT: {variant_url}")
-            await page.goto(variant_url, wait_until="domcontentloaded")
-            await asyncio.sleep(random.uniform(1.0, 2.0))
-            await page.wait_for_selector("a.downloadButton", timeout=45000)
+            await _goto_and_wait(page, variant_url, "a.downloadButton", tries=3, timeout=30000)
 
             print("⬇️ Resolving download URL...")
             btn_href = await page.get_attribute("a.downloadButton", "href")
@@ -171,9 +221,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             if not btn_href.startswith("http"):
                 btn_href = "https://www.apkmirror.com" + btn_href
 
-            await page.goto(btn_href, wait_until="domcontentloaded")
-            await asyncio.sleep(random.uniform(2.0, 3.5))
-            await page.wait_for_selector("a#download-link", timeout=30000)
+            await _goto_and_wait(page, btn_href, "a#download-link", tries=3, timeout=30000)
 
             print("⬇️ Clicking final download link...")
             out_dir = Path(__file__).parent.parent / "downloads"
