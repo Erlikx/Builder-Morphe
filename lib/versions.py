@@ -4,7 +4,7 @@ def extract_youtube_versions(output: str) -> list[dict]:
     results = []
     lines = output.split("\n")
     in_section = False
-    
+
     for line in lines:
         trimmed = line.strip()
         if trimmed.startswith("Most common compatible versions"):
@@ -19,11 +19,11 @@ def extract_youtube_versions(output: str) -> list[dict]:
                     "version": match.group(1),
                     "patches": int(match.group(2))
                 })
-                
+
     if not results:
         fallback = re.findall(r"\d+\.\d+\.\d+(?:-[a-zA-Z]+\.\d+)?", output)
         return [{"version": v, "patches": 0} for v in fallback]
-        
+
     return results
 
 def version_core(version: str) -> str:
@@ -32,16 +32,19 @@ def version_core(version: str) -> str:
 def pick_latest_version(version_list: list[dict]) -> str | None:
     if not version_list:
         return None
-    
+
     def sort_key(item):
         core = version_core(item["version"])
-        parts = [int(p) for p in core.split(".")]
-        # Pad to 3 parts for safe comparison
-        parts += [0] * (3 - len(parts))
-        return (item["patches"], parts[0], parts[1], parts[2])
+        parts = []
+        for p in core.split("."):
+            try:
+                parts.append(int(p))
+            except ValueError:
+                parts.append(0)
+        return (item["patches"], parts)
 
     sorted_list = sorted(version_list, key=sort_key, reverse=True)
     return sorted_list[0]["version"]
 
 def to_apkmirror_version(version: str) -> str:
-    return version.replace(".", "-")
+    return version.replace(".", "-").replace(" ", "-")
