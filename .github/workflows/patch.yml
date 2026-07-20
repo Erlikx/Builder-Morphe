@@ -48,6 +48,17 @@ jobs:
           playwright install chromium
           playwright install-deps chromium
 
+      - name: Set up Android SDK (apksigner)
+        uses: android-actions/setup-android@v3
+
+      - name: Install apksigner build-tools
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager --install "build-tools;35.0.0"
+          BUILD_TOOLS_DIR="$ANDROID_HOME/build-tools/35.0.0"
+          echo "APKSIGNER_PATH=$BUILD_TOOLS_DIR/apksigner" >> $GITHUB_ENV
+          echo "$BUILD_TOOLS_DIR" >> $GITHUB_PATH
+
       - name: Decode keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
@@ -69,3 +80,16 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           TARGET_APP: all
         run: python main.py
+
+      - name: Persist known APK signatures
+        if: always()
+        run: |
+          if [ -f known_signatures.json ] && [ -n "$(git status --porcelain known_signatures.json)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add known_signatures.json
+            git commit -m "chore: update known APK signatures"
+            git push
+          else
+            echo "No signature changes to commit."
+          fi
