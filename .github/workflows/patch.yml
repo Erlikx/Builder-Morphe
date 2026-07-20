@@ -63,6 +63,7 @@ jobs:
 
       - name: Run patcher
         env:
+          PYTHONUNBUFFERED: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           KS_PATH: ${{ github.workspace }}/keystore.keystore
@@ -70,7 +71,7 @@ jobs:
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           TARGET_APP: all
-        run: python main.py
+        run: python -u main.py
 
       - name: Persist known APK signatures
         if: always()
