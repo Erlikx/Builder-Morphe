@@ -1,6 +1,5 @@
 import re
 
-_PATCH_LINE = re.compile(r"^(\d+(?:\.\d+)+(?:[_.\- ]+[a-zA-Z0-9]+)*)\s+\((\d+)\s+patches?\)", re.IGNORECASE)
 
 def extract_youtube_versions(output: str) -> list[dict]:
     results = []
@@ -9,48 +8,48 @@ def extract_youtube_versions(output: str) -> list[dict]:
 
     for line in lines:
         trimmed = line.strip()
-        lower = trimmed.lower()
-        if lower.startswith("most common compatible versions") or lower.startswith("compatible versions"):
+
+        if trimmed.startswith("Most common compatible versions"):
             in_section = True
             continue
+
         if in_section and not trimmed:
             break
+
         if in_section:
-            match = _PATCH_LINE.match(trimmed)
+            match = re.match(
+                r"^(\d+\.\d+\.\d+(?:-[a-zA-Z]+\.\d+)?)\s+\((\d+)\s+patches\)",
+                trimmed,
+            )
             if match:
                 results.append({"version": match.group(1), "patches": int(match.group(2))})
 
     if not results:
-        for line in lines:
-            match = _PATCH_LINE.match(line.strip())
-            if match:
-                results.append({"version": match.group(1), "patches": int(match.group(2))})
-
-    if not results:
-        fallback = re.findall(r"\d+(?:\.\d+)+", output)
-        return [{"version": v, "patches": 0} for v in dict.fromkeys(fallback)]
+        fallback = re.findall(r"\d+\.\d+\.\d+(?:-[a-zA-Z]+\.\d+)?", output)
+        return [{"version": v, "patches": 0} for v in fallback]
 
     return results
 
-def version_core(version: str) -> str:
+
+def _version_core(version: str) -> str:
     return version.split("-")[0]
 
-def pick_latest_version(version_list: list[dict]) -> str | None:
-    if not version_list:
+
+def pick_latest_version(versions: list[dict]) -> str | None:
+    if not versions:
         return None
 
-    def sort_key(item):
-        core = version_core(item["version"])
-        parts = []
-        for p in core.split("."):
-            try:
-                parts.append(int(p))
-            except ValueError:
-                parts.append(0)
-        return (item["patches"], parts)
+    def sort_key(item: dict):
+        parts = _version_core(item["version"]).split(".")
+        try:
+            core = tuple(int(p) for p in parts[:3])
+        except ValueError:
+            core = (0, 0, 0)
+        return (item["patches"], core)
 
-    sorted_list = sorted(version_list, key=sort_key, reverse=True)
-    return sorted_list[0]["version"]
+    best = max(versions, key=sort_key)
+    return best["version"]
+
 
 def to_apkmirror_version(version: str) -> str:
-    return version.replace(".", "-").replace(" ", "-").replace("_", "-")
+    return version.replace(".", "-")
