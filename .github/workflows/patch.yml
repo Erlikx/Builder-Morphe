@@ -49,6 +49,32 @@ jobs:
           pip install --upgrade -r requirements.txt
           pip freeze > requirements-lock.txt
 
+      - name: Fix nodriver non-UTF-8 source bug (upstream)
+        run: |
+          python3 - << 'PYEOF'
+          import pathlib
+          import site
+
+          patched_any = False
+
+          for base in site.getsitepackages():
+              cdp_dir = pathlib.Path(base) / "nodriver" / "cdp"
+              if not cdp_dir.exists():
+                  continue
+              for py_file in cdp_dir.glob("*.py"):
+                  raw = py_file.read_bytes()
+                  try:
+                      raw.decode("utf-8")
+                  except UnicodeDecodeError:
+                      fixed = raw.decode("latin-1").encode("utf-8")
+                      py_file.write_bytes(fixed)
+                      print(f"Patched invalid UTF-8 bytes in: {py_file}")
+                      patched_any = True
+
+          if not patched_any:
+              print("nodriver kaynak dosyalari zaten gecerli UTF-8, duzeltme gerekmedi.")
+          PYEOF
+
       - name: Commit updated lockfile
         run: |
           if ! git diff --quiet -- requirements-lock.txt; then
