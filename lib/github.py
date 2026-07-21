@@ -1,138 +1,135 @@
-import os
 import asyncio
-import httpx
+import os
+import random
 from pathlib import Path
+from typing import Callable
 
-_TIMEOUT = httpx.Timeout(60.0, connect=20.0)
-_RETRIES = 5
-_RETRY_STATUS = (429, 500, 502, 503, 504)
-_HEADERS_BASE = {
-    "Accept": "application/vnd.github+json",
-    "User-Agent": "Builder-Morphe-Actions",
-    "X-GitHub-Api-Version": "2022-11-28",
-}
+import httpx
 
-async def _sleep_for_retry(exc, attempt):
-    delay = min(3 * (2 ** attempt), 30)
-    if isinstance(exc, httpx.HTTPStatusError):
-        raw = exc.response.headers.get("Retry-After")
-        if raw and raw.isdigit():
-            delay = max(int(raw), delay)
-    await asyncio.sleep(delay)
+GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+
+
+def _jitter(ms: int) -> int:
+    return ms + random.randint(0, 300)
+
+
+async def with_retry(fn: Callable, retries: int = 5, base_delay_ms: int = 1000):
+    last_err: Exception | None = None
+
+    for i in range(retries):
+        try:
+            return await fn(i)
+        except Exception as err:  # noqa: BLE001 - mirrors original catch-all retry
+            last_err = err
+            delay_ms = _jitter(base_delay_ms * (2 ** i))
+            print(f"🔁 Retry {i + 1}/{retries} in {delay_ms}ms - {err}")
+            await asyncio.sleep(delay_ms / 1000)
+
+    raise last_err
+
 
 async def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) -> dict:
-    if prerelease:
-        url = f"https://api.github.com/repos/{owner}/{repo}/releases?per_page=1"
-    else:
-        url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+    url = (
+        f"https://api.github.com/repos/{owner}/{repo}/releases"
+        if prerelease
+        else f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+    )
 
-    headers = dict(_HEADERS_BASE)
-    token = os.getenv("GITHUB_TOKEN")
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+    async def _do(_i: int):
+        async with httpx.AsyncClient(timeout=30) as client:
+            res = await client.get(
+                url,
+                headers={
+                    "User-Agent": "python",
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {GITHUB_TOKEN}",
+                },
+            )
+            if res.status_code >= 400:
+                raise RuntimeError(f"GitHub API error: {res.status_code}")
 
-    last_exc = None
-    for attempt in range(_RETRIES):
-        try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                response = await client.get(url, headers=headers)
-                response.raise_for_status()
-                data = response.json()
+            data = res.json()
 
-                if prerelease:
-                    if not isinstance(data, list) or len(data) == 0:
-                        raise Exception("No releases found")
-                    return data[0]
-                return data
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code not in _RETRY_STATUS:
-                raise
-            last_exc = e
-            print(f"⚠️ API returned {e.response.status_code}; retrying ({attempt + 1}/{_RETRIES})...")
-            await _sleep_for_retry(e, attempt)
-        except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as e:
-            last_exc = e
-            print(f"⚠️ API request failed ({e}); retrying ({attempt + 1}/{_RETRIES})...")
-            await _sleep_for_retry(e, attempt)
+            if prerelease:
+                if not isinstance(data, list) or not data:
+                    raise RuntimeError("No releases found")
+                return data[0]
 
-    raise Exception(f"API request failed after {_RETRIES} attempts: {last_exc}")
+            return data
 
-async def download_asset_with_resume(url: str, output_path: str, expected_size: int | None = None) -> str:
-    file_path = Path(output_path).resolve()
-    temp_path = file_path.with_suffix(file_path.suffix + ".part")
+    return await with_retry(_do)
 
-    last_exc = None
-    for attempt in range(_RETRIES):
-        downloaded = temp_path.stat().st_size if temp_path.exists() else 0
-        headers = {"Accept": "*/*", "User-Agent": "Builder-Morphe-Actions"}
 
-        if downloaded > 0:
-            headers["Range"] = f"bytes={downloaded}-"
-            print(f"↩️ Resume at {downloaded} bytes")
+async def _download_file(url: str, output_path: Path, expected_size: int | None = None) -> str:
+    temp_path = output_path.with_name(output_path.name + ".part")
+    downloaded = temp_path.stat().st_size if temp_path.exists() else 0
 
-        mode = "ab" if downloaded > 0 else "wb"
+    headers = {"User-Agent": "python", "Accept": "*/*"}
+    if downloaded > 0:
+        headers["Range"] = f"bytes={downloaded}-"
+        print(f"↩️ Resume at {downloaded} bytes")
 
-        try:
-            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-                async with client.stream("GET", url, headers=headers, follow_redirects=True) as response:
-                    response.raise_for_status()
+    mode = "ab" if downloaded > 0 else "wb"
 
-                    # Range istendiği halde sunucu 206 değil de 200 dönüyorsa,
-                    # range desteklenmiyor demektir; dosyanın tamamını yeniden
-                    # yazmak gerekir, yoksa eldeki parça + tam içerik üst üste
-                    # eklenip bozuk bir dosya oluşur.
-                    if downloaded > 0 and response.status_code != 206:
-                        print("⚠️ Sunucu Range desteklemiyor, indirme baştan başlıyor.")
-                        downloaded = 0
-                        mode = "wb"
+    async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
+        async with client.stream("GET", url, headers=headers) as res:
+            if res.status_code >= 400:
+                raise RuntimeError(f"HTTP {res.status_code}")
 
-                    with open(temp_path, mode) as f:
-                        async for chunk in response.aiter_bytes(chunk_size=8192):
-                            f.write(chunk)
-                            downloaded += len(chunk)
+            with open(temp_path, mode) as f:
+                async for chunk in res.aiter_bytes():
+                    f.write(chunk)
+                    downloaded += len(chunk)
 
-                    if expected_size and downloaded != expected_size:
-                        temp_path.unlink(missing_ok=True)
-                        raise Exception(f"Size mismatch: {downloaded}/{expected_size}")
+    if expected_size and downloaded != expected_size:
+        temp_path.unlink(missing_ok=True)
+        raise RuntimeError(f"Size mismatch: {downloaded}/{expected_size}")
 
-                    temp_path.rename(file_path)
-                    return str(file_path)
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code not in _RETRY_STATUS:
-                raise
-            last_exc = e
-            print(f"⚠️ Download server error {e.response.status_code}; retrying ({attempt + 1}/{_RETRIES})...")
-            await _sleep_for_retry(e, attempt)
-        except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError) as e:
-            last_exc = e
-            print(f"⚠️ Download interrupted ({e}); retrying ({attempt + 1}/{_RETRIES})...")
-            await _sleep_for_retry(e, attempt)
+    temp_path.rename(output_path)
+    return str(output_path)
 
-    raise Exception(f"Download failed after {_RETRIES} attempts: {last_exc}")
 
-async def download_latest_github_asset(owner: str, repo: str, prerelease: bool = False, match_fn: callable = None) -> dict:
+async def download_latest_github_asset(
+    owner: str, repo: str, match: Callable[[str], bool], prerelease: bool = False
+) -> dict:
     print(f"\n📦 Fetch release: {owner}/{repo}")
+
     release = await fetch_latest_release(owner, repo, prerelease)
 
-    if not release.get("assets"):
-        raise Exception(f"Repo {owner}/{repo} has no assets")
+    assets = release.get("assets") or []
+    if not assets:
+        raise RuntimeError(f"Repo {owner}/{repo} has no assets")
 
-    asset = next((a for a in release["assets"] if match_fn(a["name"])), None)
+    asset = next((a for a in assets if match(a["name"])), None)
     if not asset:
-        raise Exception("❌ Asset not found")
+        raise RuntimeError("❌ Matching asset not found")
 
-    print(f"🎯 Selected: {asset['name']}")
+    print("🎯 Selected:", asset["name"])
 
-    cached_path = Path(asset["name"])
-    expected_size = asset.get("size")
-    if cached_path.exists() and expected_size and cached_path.stat().st_size == expected_size:
-        print("⚡ Skip cached:", asset["name"])
-        return {"name": asset["name"], "body": release.get("body", ""), "tag": release.get("tag_name", "")}
-    elif cached_path.exists():
-        print(f"♻️ Kayıtlı dosya boyutu beklenenle uyuşmuyor, yeniden indiriliyor: {asset['name']}")
+    out_path = Path(asset["name"])
 
-    print("⬇️ Downloading...")
-    await download_asset_with_resume(asset["browser_download_url"], asset["name"], asset["size"])
+    if out_path.exists():
+        size = out_path.stat().st_size
+        if size < 1024:
+            print("🧹 Corrupt cache removed")
+            out_path.unlink()
+        else:
+            print("⚡ Skip cached:", asset["name"])
+            return {
+                "name": asset["name"],
+                "body": release.get("body") or "",
+                "tag": release.get("tag_name") or "",
+            }
+
+    async def _do(_i: int):
+        await _download_file(asset["browser_download_url"], out_path, asset.get("size"))
+
+    await with_retry(_do)
+
     print("✅ Done:", asset["name"])
 
-    return {"name": asset["name"], "body": release.get("body", ""), "tag": release.get("tag_name", "")}
+    return {
+        "name": asset["name"],
+        "body": release.get("body") or "",
+        "tag": release.get("tag_name") or "",
+    }
