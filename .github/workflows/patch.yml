@@ -1,50 +1,83 @@
-name: Builder Morphe Optimized Pipeline
+# Patch Configuration for Python 3.14 & JDK Workspace
+version: '2.0'
+project:
+  name: "python-jdk-app"
+  target_environment: "python"
+  python_version: "3.14.0"
+  jdk_version: "24.0.0"
+  build_tool: "pyproject"
 
-on:
-  workflow_dispatch:
-  schedule:
-    - cron: '0 3 * * *'  # Her gece 03:00'te otomatik derleme
+python_modules:
+  auto_update: true
+  strategy: "latest"
+  upgrade_on_build: true
+  pip_args:
+    - "--upgrade"
+    - "--no-cache-dir"
+  packages:
+    - name: "requests"
+      version: "2.32.3"
+      latest: "2.32.3"
+      auto_update: true
+    - name: "fastapi"
+      version: "0.115.6"
+      latest: "0.115.6"
+      auto_update: true
+    - name: "pydantic"
+      version: "2.10.4"
+      latest: "2.10.4"
+      auto_update: true
+    - name: "numpy"
+      version: "2.2.1"
+      latest: "2.2.1"
+      auto_update: true
+    - name: "pandas"
+      version: "2.2.3"
+      latest: "2.2.3"
+      auto_update: true
+    - name: "py4j"
+      version: "0.10.9.7"
+      latest: "0.10.9.7"
+      auto_update: true
+      description: "Python-Java JDK Bridge"
+    - name: "pyyaml"
+      version: "6.0.2"
+      latest: "6.0.2"
+      auto_update: true
+    - name: "uvicorn"
+      version: "0.34.0"
+      latest: "0.34.0"
+      auto_update: true
+    - name: "google-genai"
+      version: "1.1.0"
+      latest: "1.1.0"
+      auto_update: true
 
-jobs:
-  build:
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+jdk_configuration:
+  enabled: true
+  vendor: "OpenJDK"
+  version: "24.0.0"
+  java_home: "/usr/lib/jvm/java-24-openjdk"
+  compiler_args:
+    - "-source"
+    - "24"
+    - "-target"
+    - "24"
+  bridge: "Py4J"
 
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-          cache: 'pip'
-
-      - name: Setup Java 21 (Temurin)
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '21'
-
-      - name: Install Google Chrome, Xvfb & Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y xvfb libglib2.0-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
-          if ! command -v google-chrome-stable >/dev/null 2>&1; then
-            wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
-            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
-            sudo apt-get update && sudo apt-get install -y google-chrome-stable
-          fi
-
-      - name: Install Python Dependencies
-        run: |
-          pip install --upgrade pip
-          pip install nodriver httpx websockets anyio beautifulsoup4
-
-      - name: Run Builder Morphe Script
-        env:
-          KS_PATH: Panemi.keystore
-          KS_PASSWORD: ${{ secrets.KS_PASSWORD }}
-          KS_ALIAS: ${{ secrets.KS_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          xvfb-run -a python -u main.py
+patch_rules:
+  - id: "rule-1"
+    name: "Update Python Modules"
+    action: "pip_upgrade_all"
+    enabled: true
+    schedule: "on_build"
+  - id: "rule-2"
+    name: "Sync patch.yml to requirements.txt"
+    action: "export_requirements"
+    enabled: true
+    schedule: "on_change"
+  - id: "rule-3"
+    name: "JDK Py4J Gateway Initialization"
+    action: "jdk_gateway_init"
+    enabled: true
+    schedule: "on_start"
