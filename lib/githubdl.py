@@ -25,7 +25,7 @@ async def download_apk(version: str, app_name: str, force_build: str | None = No
 
     api_url = f"https://api.github.com/repos/fuckpdf/Depo/releases/tags/{tag}"
 
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=30) as client:
         res = await client.get(api_url, headers={"User-Agent": "Mozilla/5.0 (Python)"})
         if res.status_code >= 400:
             raise RuntimeError(f"GitHub API Hatası: {res.status_code}")
@@ -54,10 +54,6 @@ async def download_apk(version: str, app_name: str, force_build: str | None = No
             with open(file_path, "wb") as f:
                 async for chunk in file_res.aiter_bytes():
                     f.write(chunk)
-
-    downloaded_size = Path(file_path).stat().st_size
-    if downloaded_size < 1024:
-        raise RuntimeError(f"İndirilen dosya çok küçük ({downloaded_size} bayt) - muhtemelen hata sayfası indi")
 
     print(f"📦 BAŞARILI: {file_path}")
     return str(file_path)
