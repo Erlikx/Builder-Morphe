@@ -1,83 +1,118 @@
-# Patch Configuration for Python 3.14 & JDK Workspace
-version: '2.0'
-project:
-  name: "python-jdk-app"
-  target_environment: "python"
-  python_version: "3.14.0"
-  jdk_version: "24.0.0"
-  build_tool: "pyproject"
+name: Patch Morphe (Python)
 
-python_modules:
-  auto_update: true
-  strategy: "latest"
-  upgrade_on_build: true
-  pip_args:
-    - "--upgrade"
-    - "--no-cache-dir"
-  packages:
-    - name: "requests"
-      version: "2.32.3"
-      latest: "2.32.3"
-      auto_update: true
-    - name: "fastapi"
-      version: "0.115.6"
-      latest: "0.115.6"
-      auto_update: true
-    - name: "pydantic"
-      version: "2.10.4"
-      latest: "2.10.4"
-      auto_update: true
-    - name: "numpy"
-      version: "2.2.1"
-      latest: "2.2.1"
-      auto_update: true
-    - name: "pandas"
-      version: "2.2.3"
-      latest: "2.2.3"
-      auto_update: true
-    - name: "py4j"
-      version: "0.10.9.7"
-      latest: "0.10.9.7"
-      auto_update: true
-      description: "Python-Java JDK Bridge"
-    - name: "pyyaml"
-      version: "6.0.2"
-      latest: "6.0.2"
-      auto_update: true
-    - name: "uvicorn"
-      version: "0.34.0"
-      latest: "0.34.0"
-      auto_update: true
-    - name: "google-genai"
-      version: "1.1.0"
-      latest: "1.1.0"
-      auto_update: true
+on:
+  workflow_dispatch:
 
-jdk_configuration:
-  enabled: true
-  vendor: "OpenJDK"
-  version: "24.0.0"
-  java_home: "/usr/lib/jvm/java-24-openjdk"
-  compiler_args:
-    - "-source"
-    - "24"
-    - "-target"
-    - "24"
-  bridge: "Py4J"
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
 
-patch_rules:
-  - id: "rule-1"
-    name: "Update Python Modules"
-    action: "pip_upgrade_all"
-    enabled: true
-    schedule: "on_build"
-  - id: "rule-2"
-    name: "Sync patch.yml to requirements.txt"
-    action: "export_requirements"
-    enabled: true
-    schedule: "on_change"
-  - id: "rule-3"
-    name: "JDK Py4J Gateway Initialization"
-    action: "jdk_gateway_init"
-    enabled: true
-    schedule: "on_start"
+    permissions:
+      contents: write
+      actions: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Setup Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Install Google Chrome
+        run: |
+          if command -v google-chrome-stable >/dev/null 2>&1; then
+            echo "✅ Chrome zaten kurulu, adım atlanıyor: $(google-chrome-stable --version)"
+          else
+            wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/google-chrome.gpg
+            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+            sudo apt-get update
+            sudo apt-get install -y google-chrome-stable
+          fi
+
+      - name: Install & freeze Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade -r requirements.txt
+          pip freeze > requirements-lock.txt
+
+      - name: Fix nodriver non-UTF-8 source bug (upstream)
+        run: |
+          python3 - << 'PYEOF'
+          import pathlib
+          import site
+
+          patched_any = False
+
+          for base in site.getsitepackages():
+              cdp_dir = pathlib.Path(base) / "nodriver" / "cdp"
+              if not cdp_dir.exists():
+                  continue
+              for py_file in cdp_dir.glob("*.py"):
+                  raw = py_file.read_bytes()
+                  try:
+                      raw.decode("utf-8")
+                  except UnicodeDecodeError:
+                      fixed = raw.decode("latin-1").encode("utf-8")
+                      py_file.write_bytes(fixed)
+                      print(f"Patched invalid UTF-8 bytes in: {py_file}")
+                      patched_any = True
+
+          if not patched_any:
+              print("nodriver kaynak dosyalari zaten gecerli UTF-8, duzeltme gerekmedi.")
+          PYEOF
+
+      - name: Commit updated lockfile
+        run: |
+          if ! git diff --quiet -- requirements-lock.txt; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add requirements-lock.txt
+            git commit -m "chore: update requirements-lock.txt [skip ci]"
+            git push
+          else
+            echo "requirements-lock.txt değişmedi, commit atlanıyor."
+          fi
+
+      - name: Setup Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > Panemi.keystore
+
+      - name: Run script
+        run: python -u main.py
+        env:
+          PYTHONUNBUFFERED: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TARGET_APP: "all"
+          KS_PATH: "Panemi.keystore"
+          KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Yayın Onay Belgesini (Provenance) Üret
+        if: ${{ hashFiles('*.apk') != '' }}
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-path: |
+            *.apk
+            !microg*.apk
+
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@b3018382ca039b53d238908238bd35d1fb14f8ee # v2.1.0
+        with:
+          retain_days: 0
+          keep_minimum_runs: 1
