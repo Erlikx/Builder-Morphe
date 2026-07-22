@@ -24,8 +24,10 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: Install Google Chrome & Dependencies
+      - name: Install Google Chrome, Xvfb & Dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libglib2.0-0 libnss3 libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2t64
           if ! command -v google-chrome-stable >/dev/null 2>&1; then
             wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
             echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
@@ -35,7 +37,7 @@ jobs:
       - name: Install Python Dependencies
         run: |
           pip install --upgrade pip
-          pip install nodriver httpx websockets anyio
+          pip install nodriver httpx websockets anyio beautifulsoup4
 
       - name: Run Builder Morphe Script
         env:
@@ -45,4 +47,4 @@ jobs:
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python -u main.py
+          xvfb-run -a python -u main.py
