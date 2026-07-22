@@ -1,135 +1,71 @@
-import asyncio
-import os
-import random
 from pathlib import Path
-from typing import Callable
 
 import httpx
 
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+APP_TAGS = {
+    "instagram": "instagram",
+    "speedtest": "Speedtest",
+    "pydroid3": "Pydroid3",
+    "github": "github",
+    "niagara-launcher": "NiagaraLauncher",
+    "solid-explorer": "SolidExplorer",
+    "gboard": "Gboard",
+    "wps-office": "WPSOffice",
+    "smart-launcher": "SmartLauncher",
+    "brave": "brave",
+}
 
 
-def _jitter(ms: int) -> int:
-    return ms + random.randint(0, 300)
+async def download_apk(version: str, app_name: str, force_build: str | None = None) -> str:
+    tag = APP_TAGS.get(app_name)
+    if not tag:
+        raise RuntimeError(f'"{app_name}" için GitHub tag\'i bulunamadı.')
 
+    print(f"\n🌐 GitHub'dan bilgi alınıyor: {app_name.upper()} (Tag: {tag})")
 
-async def with_retry(fn: Callable, retries: int = 5, base_delay_ms: int = 1000):
-    last_err: Exception | None = None
+    api_url = f"https://api.github.com/repos/fuckpdf/Depo/releases/tags/{tag}"
 
-    for i in range(retries):
-        try:
-            return await fn(i)
-        except Exception as err:  # noqa: BLE001 - mirrors original catch-all retry
-            last_err = err
-            delay_ms = _jitter(base_delay_ms * (2 ** i))
-            print(f"🔁 Retry {i + 1}/{retries} in {delay_ms}ms - {err}")
-            await asyncio.sleep(delay_ms / 1000)
+    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+        res = await client.get(api_url, headers={"User-Agent": "Mozilla/5.0 (Python)"})
+        if res.status_code >= 400:
+            raise RuntimeError(f"GitHub API Hatası: {res.status_code}")
 
-    raise last_err
+        release_data = res.json()
+        asset = next(
+            (a for a in release_data["assets"] if a["name"].endswith(".apk") or a["name"].endswith(".apkm")),
+            None,
+        )
 
+        if not asset:
+            raise RuntimeError(f'"{tag}" etiketli GitHub sürümünde .apk veya .apkm dosyası bulunamadı.')
 
-async def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) -> dict:
-    url = (
-        f"https://api.github.com/repos/{owner}/{repo}/releases"
-        if prerelease
-        else f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
-    )
+        size_mb = asset["size"] / (1024 * 1024)
+        print(f"➡️ İndirilecek dosya bulundu: {asset['name']} ({size_mb:.2f} MB)")
 
-    async def _do(_i: int):
-        async with httpx.AsyncClient(timeout=30) as client:
-            res = await client.get(
-                url,
-                headers={
-                    "User-Agent": "python",
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {GITHUB_TOKEN}",
-                },
-            )
-            if res.status_code >= 400:
-                raise RuntimeError(f"GitHub API error: {res.status_code}")
+        out_dir = Path(__file__).resolve().parent.parent / "downloads"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        file_path = out_dir / asset["name"]
 
-            data = res.json()
+        print("⬇️ İndiriliyor...")
 
-            if prerelease:
-                if not isinstance(data, list) or not data:
-                    raise RuntimeError("No releases found")
-                return data[0]
-
-            return data
-
-    return await with_retry(_do)
-
-
-async def _download_file(url: str, output_path: Path, expected_size: int | None = None) -> str:
-    temp_path = output_path.with_name(output_path.name + ".part")
-    downloaded = temp_path.stat().st_size if temp_path.exists() else 0
-
-    headers = {"User-Agent": "python", "Accept": "*/*"}
-    if downloaded > 0:
-        headers["Range"] = f"bytes={downloaded}-"
-        print(f"↩️ Resume at {downloaded} bytes")
-
-    mode = "ab" if downloaded > 0 else "wb"
-
-    async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
-        async with client.stream("GET", url, headers=headers) as res:
-            if res.status_code >= 400:
-                raise RuntimeError(f"HTTP {res.status_code}")
-
-            with open(temp_path, mode) as f:
-                async for chunk in res.aiter_bytes():
+        async with client.stream("GET", asset["browser_download_url"]) as file_res:
+            if file_res.status_code >= 400:
+                raise RuntimeError("Dosya GitHub'dan indirilemedi!")
+            with open(file_path, "wb") as f:
+                async for chunk in file_res.aiter_bytes():
                     f.write(chunk)
-                    downloaded += len(chunk)
 
-    if expected_size and downloaded != expected_size:
-        temp_path.unlink(missing_ok=True)
-        raise RuntimeError(f"Size mismatch: {downloaded}/{expected_size}")
+    downloaded_size = Path(file_path).stat().st_size
+    if downloaded_size < 1024:
+        raise RuntimeError(f"İndirilen dosya çok küçük ({downloaded_size} bayt) - muhtemelen hata sayfası indi")
 
-    temp_path.rename(output_path)
-    return str(output_path)
+    print(f"📦 BAŞARILI: {file_path}")
+    return str(file_path)
 
 
-async def download_latest_github_asset(
-    owner: str, repo: str, match: Callable[[str], bool], prerelease: bool = False
-) -> dict:
-    print(f"\n📦 Fetch release: {owner}/{repo}")
+async def get_latest_listing(app_name: str) -> dict:
+    tag = APP_TAGS.get(app_name)
+    if not tag:
+        raise RuntimeError(f'"{app_name}" için GitHub tag\'i bulunamadı.')
 
-    release = await fetch_latest_release(owner, repo, prerelease)
-
-    assets = release.get("assets") or []
-    if not assets:
-        raise RuntimeError(f"Repo {owner}/{repo} has no assets")
-
-    asset = next((a for a in assets if match(a["name"])), None)
-    if not asset:
-        raise RuntimeError("❌ Matching asset not found")
-
-    print("🎯 Selected:", asset["name"])
-
-    out_path = Path(asset["name"])
-
-    if out_path.exists():
-        size = out_path.stat().st_size
-        if size < 1024:
-            print("🧹 Corrupt cache removed")
-            out_path.unlink()
-        else:
-            print("⚡ Skip cached:", asset["name"])
-            return {
-                "name": asset["name"],
-                "body": release.get("body") or "",
-                "tag": release.get("tag_name") or "",
-            }
-
-    async def _do(_i: int):
-        await _download_file(asset["browser_download_url"], out_path, asset.get("size"))
-
-    await with_retry(_do)
-
-    print("✅ Done:", asset["name"])
-
-    return {
-        "name": asset["name"],
-        "body": release.get("body") or "",
-        "tag": release.get("tag_name") or "",
-    }
+    return {"version": "latest", "href": f"https://github.com/fuckpdf/Depo/releases/tag/{tag}"}
