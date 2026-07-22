@@ -15,24 +15,10 @@ APP_SITES = {
     "reddit": {"org": "reddit-inc", "slug": "reddit"},
     "twitter": {"org": "x-corp", "slug": "twitter", "release_slug": "x"},
     "instagram": {"org": "instagram", "slug": "instagram"},
-    "github": {"org": "github", "slug": "github-2", "release_slug": "github"},
-    "niagara-launcher": {
-        "org": "mellowdrop-studio",
-        "slug": "niagara-launcher-🔹-fresh-clean",
-        "release_slug": "niagara-launcher-‧-home-screen",
-    },
-    "pydroid3": {"org": "lider-soft-kz", "slug": "pydroid-3-ide-for-python-3"},
-    "smart-launcher": {
-        "org": "smart-launcher-team",
-        "slug": "smart-launcher",
-        "release_slug": "smart-launcher-6-‧-home-screen",
-    },
-    "wps-office": {"org": "wps-software-pte-ltd", "slug": "wps-office-pdf"},
     "gboard": {"org": "google-inc", "slug": "gboard", "release_slug": "gboard-the-google-keyboard"},
     "speedtest": {"org": "ookla", "slug": "speedtest"},
     "solid-explorer": {"org": "neatbytes", "slug": "solid-explorer-file-manager"},
     "brave": {"org": "brave-software", "slug": "brave-browser", "release_slug": "brave-private-web-browser-vpn"},
-    "nova-launcher": {"org": "instabridge-sweden-ab", "slug": "nova-launcher"},
 }
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0 Safari/537.36"
