@@ -1,6 +1,8 @@
 import asyncio
 import os
 import logging
+import re
+import httpx
 import nodriver as uc
 
 class APKMirrorScraper:
@@ -9,60 +11,89 @@ class APKMirrorScraper:
 
     async def init_browser(self):
         """
-        [DÜZELTME] Nodriver Chrome Başlatma (GitHub Runner Uyumlu).
-        Nodriver kütüphanesinde '--no-sandbox' add_argument ile verilemez.
-        Doğrudan Config.sandbox = False ve Config.headless = True kullanılır.
+        GitHub Actions / Linux CI ortamında Chrome başlatıcı.
+        xvfb-run altında veya headless modda sorunsuz çalışması için
+        sandbox=False ayarı ile başlatılır.
         """
-        logging.info("🔥 Nodriver Chrome başlatılıyor (sandbox=False)...")
-        
-        config = uc.Config()
-        config.sandbox = False  # Root runner için sandbox'ı güvenli şekilde kapatır
-        config.headless = True
-        
-        chrome_binary = "/usr/bin/google-chrome-stable"
-        if os.path.exists(chrome_binary):
-            config.browser_executable_path = chrome_binary
+        logging.info("🔥 Nodriver Chrome başlatılıyor...")
+        try:
+            config = uc.Config()
+            config.sandbox = False  # Linux CI ortamında root/runner için
+            config.headless = True
+            
+            chrome_binary = "/usr/bin/google-chrome-stable"
+            if os.path.exists(chrome_binary):
+                config.browser_executable_path = chrome_binary
 
-        self.browser = await uc.start(config=config)
-        logging.info("✅ Nodriver Chrome başarıyla başlatıldı.")
+            self.browser = await uc.start(config=config)
+            logging.info("✅ Nodriver Chrome başarıyla başlatıldı.")
+        except Exception as e:
+            logging.error(f"⚠️ Tarayıcı başlatılamadı: {e}. Fallback (HTTP Direct) moduna geçilecek.")
+            self.browser = None
 
     async def fetch_apk(self, app_name, pkg_name, target_version=None):
         """
-        [DÜZELTME] 'list object has no attribute get' Hatasının Çözümü.
-        APKMirror JSON parsing yanıtlarında gelen verinin list mi dict mi olduğu kontrol ediliyor.
+        APKMirror üzerinde arama yapıp APK indirme bağlantısını çeker.
+        Hem Nodriver hem de HTTP fallback mekanizması içerir.
         """
         url = f"https://www.apkmirror.com/apk/search/?q={pkg_name}"
         logging.info(f"🔎 [TRY] {app_name} aranıyor: {url}")
 
-        tab = await self.browser.get(url)
-        await asyncio.sleep(2)  # Dinamik yükleme beklemesi
+        download_url = None
 
-        # Örnek API veya DOM yanıtını çözümleme
-        raw_response = await tab.evaluate("window.__NEXT_DATA__ || window.downloadData || []")
+        # Yöntem 1: Nodriver ile dinamik tarama
+        if self.browser:
+            try:
+                tab = await self.browser.get(url)
+                await asyncio.sleep(3)  # Yüklenme beklemesi
 
-        # 🛑 HATA ÖNLEME: Eğer yanıt liste ise ilk geçerli elemanı al
-        if isinstance(raw_response, list):
-            logging.debug(f"{app_name} yanıtı liste formatında döndü, ilk eleman işleniyor.")
-            item_data = raw_response[0] if len(raw_response) > 0 else {}
-        elif isinstance(raw_response, dict):
-            item_data = raw_response
-        else:
-            item_data = {}
+                raw_response = await tab.evaluate("window.__NEXT_DATA__ || window.downloadData || []")
 
-        # Güvenli .get() Kullanımı
-        download_url = item_data.get("download_url") if isinstance(item_data, dict) else None
+                if isinstance(raw_response, list):
+                    item_data = raw_response[0] if len(raw_response) > 0 else {}
+                elif isinstance(raw_response, dict):
+                    item_data = raw_response
+                else:
+                    item_data = {}
 
+                if isinstance(item_data, dict):
+                    download_url = item_data.get("download_url")
+
+                if not download_url:
+                    download_url = await tab.evaluate(
+                        "document.querySelector('a.downloadButton')?.href || "
+                        "document.querySelector('a[href*=\"/download/\"]')?.href || null"
+                    )
+            except Exception as e:
+                logging.warning(f"Nodriver sorgulama hatası ({app_name}): {e}")
+
+        # Yöntem 2: HTTP Fallback (Eğer Nodriver bağlantı bulamadıysa)
         if not download_url:
-            # Fallback direct download link finder
-            download_url = await tab.evaluate("document.querySelector('a.downloadButton')?.href || null")
+            logging.info(f"🌐 [HTTP Fallback] {app_name} için doğrudan HTTP isteği atılıyor...")
+            headers = {
+                "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+            }
+            try:
+                async with httpx.AsyncClient(follow_redirects=True, headers=headers, timeout=15) as client:
+                    resp = await client.get(url)
+                    if resp.status_code == 200:
+                        matches = re.findall(r'href="(/apk/[^"]+-download/)"', resp.text)
+                        if matches:
+                            download_url = "https://www.apkmirror.com" + matches[0]
+            except Exception as e:
+                logging.error(f"HTTP isteği başarısız ({app_name}): {e}")
 
         if download_url:
             logging.info(f"🌐 [LİSTE BULUNDU] {app_name}: {download_url}")
+            os.makedirs("./downloads", exist_ok=True)
             return f"./downloads/{app_name.lower()}.apk"
         else:
             raise ValueError(f"Uygun indirme bağlantısı oluşturulamadı: {app_name}")
 
     async def close_browser(self):
         if self.browser:
-            self.browser.stop()
-            logging.info("🧹 Tarayıcı oturumu kapatıldı.")
+            try:
+                self.browser.stop()
+                logging.info("🧹 Tarayıcı oturumu kapatıldı.")
+            except Exception:
+                pass
