@@ -3,9 +3,9 @@ import json
 import re
 import subprocess
 import time
+import zipfile
 from pathlib import Path
 
-import httpx
 import nodriver as uc
 from nodriver import cdp
 
@@ -92,6 +92,27 @@ async def _safe_stop(browser) -> None:
         browser.stop()
     except Exception:
         pass
+
+
+async def warmup_browser() -> None:
+    """Pay Chrome's one-time cold-start cost up front.
+
+    On a fresh runner, the very first Chrome launch is slow (disk cache /
+    profile setup) and reliably misses nodriver's CDP connect timeout, even
+    though every launch after it connects almost instantly. If that first
+    launch happens to be triggered by the first real app in the pipeline
+    (e.g. YouTube), that app pays the cost and can exhaust its retries.
+    Call this once, before processing any apps, so whichever app goes
+    first doesn't have to absorb the cold start itself. Failures here are
+    expected/harmless - the goal is just to "use up" the slow launch.
+    """
+    print("🔥 Warming up browser (first Chrome launch is slow, this is expected)...")
+    try:
+        browser = await _start_browser(retries=1)
+        await _safe_stop(browser)
+        print("✅ Browser warm-up done")
+    except Exception as e:
+        print(f"⚠️ Browser warm-up attempt failed (expected, continuing): {e}")
 
 
 async def _row_count(tab) -> int:
@@ -240,6 +261,32 @@ async def _download_via_browser(tab, final_url: str, out_dir: Path, timeout_s: i
     return stable_candidate
 
 
+def _looks_like_split_bundle(path: Path) -> bool:
+    """Detect whether a downloaded file is actually a split-APK bundle
+    (what APKMirror calls a "BUNDLE" build - one zip containing base.apk +
+    several split_*.apk files) rather than a single installable APK.
+
+    This matters because the variant picker falls back to a bundle build
+    whenever no standalone build exists for a given version. Instagram's
+    bundle downloads (via GitHub, already named *.apkm) get merged
+    correctly by the patcher because it recognises the .apkm extension.
+    If we blindly force a bundle download's filename to end in ".apk" (as
+    this module used to), the patcher tries to read it as a single APK,
+    can't find AndroidManifest.xml at the top level, and crashes. Detect
+    the real structure instead of trusting the URL's file extension.
+    """
+    try:
+        with zipfile.ZipFile(path) as zf:
+            names = zf.namelist()
+    except zipfile.BadZipFile:
+        return False
+
+    if "AndroidManifest.xml" in names:
+        return False
+
+    return sum(1 for n in names if n.lower().endswith(".apk")) >= 1
+
+
 async def download_apk(version: str, app_name: str = "youtube", force_build: str | None = None) -> str:
     app_config = APP_SITES.get(app_name)
     if not app_config:
@@ -292,9 +339,16 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
 
         downloaded_path = await _download_via_browser(tab, final_url, out_dir)
 
-        file_name = final_url.split("/")[-1].split("?")[0] or f"{app_name}.apk"
-        if not file_name.endswith(".apk"):
-            file_name = f"{app_name}-{version}.apk"
+        is_bundle = _looks_like_split_bundle(downloaded_path)
+        correct_ext = ".apkm" if is_bundle else ".apk"
+        if is_bundle:
+            print("📦 Detected split-APK bundle (no standalone build was available) - saving as .apkm")
+
+        url_name = final_url.split("/")[-1].split("?")[0]
+        if url_name and url_name.lower().endswith((".apk", ".apkm", ".xapk")) and not is_bundle:
+            file_name = url_name
+        else:
+            file_name = f"{app_name}-{version}{correct_ext}"
 
         file_path = out_dir / file_name
         if downloaded_path != file_path:
