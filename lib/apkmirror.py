@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 
@@ -34,29 +35,39 @@ APP_SITES = {
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0 Safari/537.36"
 
-# NOT: nodriver aktif geliştirilen, hızlı değişen bir kütüphane. Aşağıdaki
-# select/select_all/attrs/text API'leri deneme sırasında (test edilmeden)
-# yazıldı - versiyona göre küçük farklar çıkarsa ilk çalıştırmada log'a
-# bakıp birlikte düzeltiriz.
+# NOT: nodriver'ın element-handle tabanli select()/select_all() API'si CDP
+# node referanslarini sayfa gecisleri arasinda kaybediyor ("Could not find
+# node with given id"). Bu yuzden burada SADECE tab.get() (navigasyon) ve
+# tab.evaluate() (JS ile veri cekme) kullaniliyor - orijinal Playwright
+# kodunun page.evaluate() yaklasimiyla ayni mantik, nodriver'da daha guvenilir.
 
 
 async def _start_browser():
     return await uc.start(
         headless=True,
+        no_sandbox=True,
         browser_args=[
             "--no-sandbox",
+            "--disable-dev-shm-usage",
             "--disable-blink-features=AutomationControlled",
             f"--user-agent={USER_AGENT}",
         ],
     )
 
 
+async def _row_count(tab) -> int:
+    try:
+        result = await tab.evaluate("document.querySelectorAll('.table-row').length")
+        return int(result or 0)
+    except Exception:
+        return 0
+
+
 async def _page_exists(tab, url: str) -> bool:
     try:
         await tab.get(url)
-        await tab.sleep(0.6)
-        row = await tab.select(".table-row", timeout=3)
-        return row is not None
+        await tab.sleep(1.0)
+        return (await _row_count(tab)) > 0
     except Exception:
         return False
 
@@ -81,81 +92,67 @@ async def _resolve_list_url(tab, app_config: dict, version: str) -> str:
     print("⚠️ No direct match, scanning app listing page...")
     listing_url = f"{folder_url}/"
     await tab.get(listing_url)
-    await tab.sleep(1)
+    await tab.sleep(1.0)
 
-    links = await tab.select_all("a[href*='-release/']")
     slug_part = f"-{version_slug}-"
+    js = f"""
+    (() => {{
+        const links = Array.from(document.querySelectorAll("a[href*='-release/']"));
+        const match = links.find(a => a.getAttribute('href').includes({json.dumps(slug_part)}));
+        return match ? match.href : null;
+    }})()
+    """
+    found_url = await tab.evaluate(js)
 
-    for link in links or []:
-        href = link.attrs.get("href", "") if hasattr(link, "attrs") else ""
-        if slug_part in href:
-            return href if href.startswith("http") else "https://www.apkmirror.com" + href
+    if not found_url:
+        raise RuntimeError(f"No APKMirror release page found for version {version}")
 
-    raise RuntimeError(f"No APKMirror release page found for version {version}")
-
-
-def _has_dpi_pattern(text: str) -> bool:
-    return bool(re.search(r"\d+-640dpi", text))
+    return found_url
 
 
 async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> str | None:
-    rows = await tab.select_all(".table-row")
+    js = f"""
+    (() => {{
+        const rows = document.querySelectorAll('.table-row');
+        let standaloneNodpi = null, standaloneAnyDpi = null, bundleNodpi = null, bundleAnyDpi = null;
+        const allowedArchs = ['universal', 'evrensel', 'noarch', 'arm64-v8a', 'arm64-v8a + armeabi-v7a', 'arm64-v8a + armeabi'];
+        const forceBuild = {json.dumps(force_build)};
+        const appName = {json.dumps(app_name)};
 
-    standalone_nodpi = None
-    standalone_anydpi = None
-    bundle_nodpi = None
-    bundle_anydpi = None
+        for (const row of rows) {{
+            const cells = row.querySelectorAll('.table-cell');
+            if (cells.length < 4) continue;
 
-    allowed_archs = [
-        "universal", "evrensel", "noarch",
-        "arm64-v8a", "arm64-v8a + armeabi-v7a", "arm64-v8a + armeabi",
-    ]
+            const link = cells[0].querySelector('a.accent_color');
+            if (!link) continue;
 
-    for row in rows or []:
-        cells = await row.query_selector_all(".table-cell")
-        if len(cells) < 4:
-            continue
+            if (forceBuild && !cells[0].innerText.includes(forceBuild)) continue;
 
-        link = await cells[0].query_selector("a.accent_color")
-        if not link:
-            continue
+            const badge = cells[0].querySelector('.apkm-badge');
+            const badgeText = badge ? badge.innerText.toUpperCase() : '';
+            const isBundle = badgeText.includes('BUNDLE') || badgeText.includes('PAKET');
 
-        cell0_text = (cells[0].text or "").strip()
-        if force_build and force_build not in cell0_text:
-            continue
+            if (appName === 'instagram' && !isBundle) continue;
 
-        badge = await cells[0].query_selector(".apkm-badge")
-        badge_text = (badge.text or "").upper() if badge else ""
-        is_bundle = "BUNDLE" in badge_text or "PAKET" in badge_text
+            const archText = (cells[1].innerText || '').trim().toLowerCase();
+            const dpiText = (cells[3].innerText || '').trim().toLowerCase();
 
-        if app_name == "instagram" and not is_bundle:
-            continue
+            const isTargetArch = archText === '' || allowedArchs.some(a => archText.includes(a));
+            const isTargetDpi = dpiText === '' || dpiText.includes('nodpi') || dpiText.includes('anydpi') || /\\d+-640dpi/.test(dpiText);
 
-        arch_text = (cells[1].text or "").strip().lower()
-        dpi_text = (cells[3].text or "").strip().lower()
+            if (isTargetArch && isTargetDpi) {{
+                if (!isBundle) {{
+                    if (dpiText.includes('nodpi')) standaloneNodpi = link.href; else standaloneAnyDpi = link.href;
+                }} else {{
+                    if (dpiText.includes('nodpi')) bundleNodpi = link.href; else bundleAnyDpi = link.href;
+                }}
+            }}
+        }}
 
-        is_target_arch = arch_text == "" or any(a in arch_text for a in allowed_archs)
-        is_target_dpi = (
-            dpi_text == ""
-            or "nodpi" in dpi_text
-            or "anydpi" in dpi_text
-            or _has_dpi_pattern(dpi_text)
-        )
-
-        if is_target_arch and is_target_dpi:
-            href = link.attrs.get("href")
-            if not is_bundle:
-                if "nodpi" in dpi_text:
-                    standalone_nodpi = href
-                else:
-                    standalone_anydpi = href
-            else:
-                if "nodpi" in dpi_text:
-                    bundle_nodpi = href
-                else:
-                    bundle_anydpi = href
-
-    return standalone_nodpi or standalone_anydpi or bundle_nodpi or bundle_anydpi
+        return standaloneNodpi || standaloneAnyDpi || bundleNodpi || bundleAnyDpi;
+    }})()
+    """
+    return await tab.evaluate(js)
 
 
 async def download_apk(version: str, app_name: str = "youtube", force_build: str | None = None) -> str:
@@ -172,38 +169,34 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
         print("🌐 LIST:", list_url)
 
         await tab.get(list_url)
-        await tab.select(".table-row", timeout=10)
+        await tab.sleep(1.0)
 
         variant_url = await _extract_variant_url(tab, force_build, app_name)
         if not variant_url:
             raise RuntimeError("No matching variant found on APKMirror")
 
-        if variant_url.startswith("/"):
-            variant_url = "https://www.apkmirror.com" + variant_url
-
         print("➡️ VARIANT:", variant_url)
 
         await tab.get(variant_url)
-        download_btn = await tab.select("a.downloadButton", timeout=10)
-        if not download_btn:
-            raise RuntimeError("Download button not found")
+        await tab.sleep(1.0)
 
-        confirm_href = download_btn.attrs.get("href")
+        confirm_href = await tab.evaluate(
+            "(() => { const el = document.querySelector('a.downloadButton'); return el ? el.getAttribute('href') : null; })()"
+        )
         if not confirm_href:
-            raise RuntimeError("Download button has no href")
+            raise RuntimeError("Download button not found")
         if confirm_href.startswith("/"):
             confirm_href = "https://www.apkmirror.com" + confirm_href
 
         print("⬇️ Confirm page:", confirm_href)
         await tab.get(confirm_href)
+        await tab.sleep(1.0)
 
-        final_link_el = await tab.select("#download-link", timeout=10)
-        if not final_link_el:
-            raise RuntimeError("Final download link not found")
-
-        final_url = final_link_el.attrs.get("href")
+        final_url = await tab.evaluate(
+            "(() => { const el = document.querySelector('#download-link'); return el ? el.getAttribute('href') : null; })()"
+        )
         if not final_url:
-            raise RuntimeError("Final download link has no href")
+            raise RuntimeError("Final download link not found")
         if final_url.startswith("/"):
             final_url = "https://www.apkmirror.com" + final_url
 
@@ -217,7 +210,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             cookies = await browser.cookies.get_all()
             cookie_dict = {c.name: c.value for c in (cookies or [])}
         except Exception:
-            pass  # cookie taşımak başarısız olsa da APKMirror'ın nihai dosya linki genelde herkese açık
+            pass
 
         file_name = final_url.split("/")[-1].split("?")[0] or f"{app_name}.apk"
         if not file_name.endswith(".apk"):
@@ -225,15 +218,26 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
 
         file_path = out_dir / file_name
 
+        headers = {
+            "User-Agent": USER_AGENT,
+            "Referer": confirm_href,
+            "Accept": "application/vnd.android.package-archive,application/octet-stream,*/*",
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+
         async with httpx.AsyncClient(follow_redirects=True, timeout=None, cookies=cookie_dict) as client:
-            async with client.stream("GET", final_url, headers={"User-Agent": USER_AGENT}) as res:
+            async with client.stream("GET", final_url, headers=headers) as res:
                 if res.status_code >= 400:
                     raise RuntimeError(f"Download HTTP {res.status_code}")
                 with open(file_path, "wb") as f:
                     async for chunk in res.aiter_bytes():
                         f.write(chunk)
 
-        print("📦 DONE:", file_path)
+        size = file_path.stat().st_size
+        if size < 1024:
+            raise RuntimeError(f"Downloaded file too small ({size} bytes) - muhtemelen 403/hata sayfasi indi")
+
+        print("📦 DONE:", file_path, f"({size / 1024 / 1024:.2f} MB)")
         return str(file_path)
 
     finally:
@@ -253,12 +257,24 @@ async def get_latest_listing(app_name: str) -> dict | None:
         print("🌐 LISTING:", listing_url)
 
         await tab.get(listing_url)
-        link = await tab.select("a[href*='-release/']", timeout=10)
-        if not link:
+        await tab.sleep(1.0)
+
+        js = """
+        (() => {
+            const link = document.querySelector("a[href*='-release/']");
+            if (!link) return null;
+            const row = link.closest('div, li, tr') || link.parentElement;
+            const text = row ? row.innerText : link.innerText;
+            return { href: link.href, text: text || '' };
+        })()
+        """
+        result = await tab.evaluate(js)
+
+        if not result:
             return None
 
-        href = link.attrs.get("href")
-        text = link.text or ""
+        text = result.get("text", "") if isinstance(result, dict) else ""
+        href = result.get("href") if isinstance(result, dict) else None
 
         match = re.search(r"\d+(?:\.\d+)+", text)
 
