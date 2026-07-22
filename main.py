@@ -203,7 +203,7 @@ async def main():
         target_app = os.environ.get("TARGET_APP", "all")
         apps_to_process = PROCESS_ORDER if target_app == "all" else [target_app]
 
-        if any(APPS_CONFIG[k]["name"] in apkmirror.APKMIRROR_APPS for k in apps_to_process):
+        if any(APPS_CONFIG[k]["name"] in APKMIRROR_APPS for k in apps_to_process):
             await apkmirror.warmup_browser()
 
         patches_pool: dict[str, str | None] = {k: None for k in PATCH_SOURCES}
