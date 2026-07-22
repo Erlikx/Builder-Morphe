@@ -18,14 +18,14 @@ def extract_youtube_versions(output: str) -> list[dict]:
 
         if in_section:
             match = re.match(
-                r"^(\d+\.\d+\.\d+(?:-[a-zA-Z]+(?:\.\d+)?)?)\s+\((\d+)\s+patches\)",
+                r"^(\d+\.\d+\.\d+(?:-[a-zA-Z]+\.\d+)?)\s+\((\d+)\s+patches\)",
                 trimmed,
             )
             if match:
                 results.append({"version": match.group(1), "patches": int(match.group(2))})
 
     if not results:
-        fallback = re.findall(r"\d+\.\d+\.\d+(?:-[a-zA-Z]+(?:\.\d+)?)?", output)
+        fallback = re.findall(r"\d+\.\d+\.\d+(?:-[a-zA-Z]+\.\d+)?", output)
         return [{"version": v, "patches": 0} for v in fallback]
 
     return results
