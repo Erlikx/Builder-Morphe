@@ -1,4 +1,5 @@
 import asyncio
+import os
 import logging
 import nodriver as uc
 
@@ -10,18 +11,37 @@ class APKMirrorScraper:
         """
         [DÜZELTME 1] Root & Headless Runner Uyumlu Chrome Başlatma.
         GitHub Actions veya Docker root ortamında tarayıcı çökmesini önlemek için
-        --no-sandbox ve --disable-setuid-sandbox bayrakları eklendi.
+        sandbox=False ve browser_args bayrakları eklendi.
         """
         logging.info("🔥 Nodriver Chrome başlatılıyor (Optimize Sandbox Ayarları)...")
-        self.browser = await uc.start(
-            flags=[
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-dev-shm-usage",
-                "--disable-gpu",
-                "--headless=new"
-            ]
-        )
+        
+        chrome_binary = "/usr/bin/google-chrome-stable" if os.path.exists("/usr/bin/google-chrome-stable") else None
+        
+        try:
+            self.browser = await uc.start(
+                browser_executable_path=chrome_binary,
+                browser_args=[
+                    "--no-sandbox",
+                    "--disable-setuid-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-gpu",
+                    "--headless=new"
+                ],
+                sandbox=False
+            )
+        except Exception as e:
+            logging.warning(f"Standart uc.start başarısız ({e}), Config nesnesi ile tekrar deneniyor...")
+            config = uc.Config()
+            config.sandbox = False
+            config.headless = True
+            config.add_argument("--no-sandbox")
+            config.add_argument("--disable-setuid-sandbox")
+            config.add_argument("--disable-dev-shm-usage")
+            config.add_argument("--disable-gpu")
+            if chrome_binary:
+                config.browser_executable_path = chrome_binary
+            self.browser = await uc.start(config=config)
+
         logging.info("✅ Nodriver Chrome başarıyla başlatıldı.")
 
     async def fetch_apk(self, app_name, pkg_name, target_version=None):
