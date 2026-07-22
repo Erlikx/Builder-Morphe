@@ -1,10 +1,2 @@
-# Generated from patch.yml - Python 3.14 Environment Dependencies
-requests>=2.32.3
-fastapi>=0.115.6
-pydantic>=2.10.4
-numpy>=2.2.1
-pandas>=2.2.3
-py4j>=0.10.9.7
-pyyaml>=6.0.2
-uvicorn>=0.34.0
-google-genai>=1.1.0
+nodriver
+httpx
