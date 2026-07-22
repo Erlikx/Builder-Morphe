@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 
@@ -45,15 +46,31 @@ def patch_apk(
 
     print(f"🖥️ EXECUTING COMMAND: {' '.join(cmd)}")
 
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    output = (result.stdout or "") + (result.stderr or "")
-    print(output)
+    # ÖNEMLİ: subprocess.run(capture_output=True) TÜM çıktıyı süreç bitene
+    # kadar arabelleğe alır, ancak sonunda tek seferde döner - bu yüzden
+    # uzun süren/donmuş bir Java sürecinde log ekranda "hiçbir şey olmuyormuş"
+    # gibi görünür. Popen ile satır satır okuyup ANINDA basıyoruz.
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        bufsize=1,
+    )
+
+    output_lines = []
+    for line in process.stdout:
+        print(line, end="", flush=True)
+        output_lines.append(line)
+
+    process.wait()
+    output = "".join(output_lines)
 
     if "Applying 0 patches" in output:
         raise RuntimeError("Applying 0 patches. Uyumlu yama bulunamadı veya sürüm desteklenmiyor.")
 
-    if result.returncode != 0:
-        raise RuntimeError(f"Patch failed (exit {result.returncode}):\n{output}")
+    if process.returncode != 0:
+        raise RuntimeError(f"Patch failed (exit {process.returncode}):\n{output}")
 
     match = re.search(r"INFO:\s+Saved to\s+([^\r\n]+\.apk)", output, re.IGNORECASE)
     if not match:
