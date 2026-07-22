@@ -9,44 +9,26 @@ class APKMirrorScraper:
 
     async def init_browser(self):
         """
-        [DÜZELTME 1] Root & Headless Runner Uyumlu Chrome Başlatma.
-        GitHub Actions veya Docker root ortamında tarayıcı çökmesini önlemek için
-        sandbox=False ve browser_args bayrakları eklendi.
+        [DÜZELTME] Nodriver Chrome Başlatma (GitHub Runner Uyumlu).
+        Nodriver kütüphanesinde '--no-sandbox' add_argument ile verilemez.
+        Doğrudan Config.sandbox = False ve Config.headless = True kullanılır.
         """
-        logging.info("🔥 Nodriver Chrome başlatılıyor (Optimize Sandbox Ayarları)...")
+        logging.info("🔥 Nodriver Chrome başlatılıyor (sandbox=False)...")
         
-        chrome_binary = "/usr/bin/google-chrome-stable" if os.path.exists("/usr/bin/google-chrome-stable") else None
+        config = uc.Config()
+        config.sandbox = False  # Root runner için sandbox'ı güvenli şekilde kapatır
+        config.headless = True
         
-        try:
-            self.browser = await uc.start(
-                browser_executable_path=chrome_binary,
-                browser_args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-gpu",
-                    "--headless=new"
-                ],
-                sandbox=False
-            )
-        except Exception as e:
-            logging.warning(f"Standart uc.start başarısız ({e}), Config nesnesi ile tekrar deneniyor...")
-            config = uc.Config()
-            config.sandbox = False
-            config.headless = True
-            config.add_argument("--no-sandbox")
-            config.add_argument("--disable-setuid-sandbox")
-            config.add_argument("--disable-dev-shm-usage")
-            config.add_argument("--disable-gpu")
-            if chrome_binary:
-                config.browser_executable_path = chrome_binary
-            self.browser = await uc.start(config=config)
+        chrome_binary = "/usr/bin/google-chrome-stable"
+        if os.path.exists(chrome_binary):
+            config.browser_executable_path = chrome_binary
 
+        self.browser = await uc.start(config=config)
         logging.info("✅ Nodriver Chrome başarıyla başlatıldı.")
 
     async def fetch_apk(self, app_name, pkg_name, target_version=None):
         """
-        [DÜZELTME 2] 'list object has no attribute get' Hatasının Çözümü.
+        [DÜZELTME] 'list object has no attribute get' Hatasının Çözümü.
         APKMirror JSON parsing yanıtlarında gelen verinin list mi dict mi olduğu kontrol ediliyor.
         """
         url = f"https://www.apkmirror.com/apk/search/?q={pkg_name}"
