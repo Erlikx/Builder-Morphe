@@ -9,6 +9,7 @@ from lib.github import download_latest_github_asset
 from lib.versions import extract_youtube_versions, pick_latest_version
 from lib.patcher import patch_apk
 from lib.release import ensure_release, upload_patched_apk, upload_microg_once
+from lib.verify import verify_apk_signature
 from lib import apkmirror
 from lib import githubdl
 
@@ -18,22 +19,15 @@ DISPLAY_NAMES = {
     "reddit": "Reddit",
     "twitter": "Twitter",
     "instagram": "Instagram",
-    "github": "GitHub",
-    "niagara-launcher": "Niagara Launcher",
-    "pydroid3": "PyDroid3",
-    "smart-launcher": "Smart Launcher",
-    "wps-office": "WPS Office",
     "gboard": "Gboard",
     "speedtest": "Speedtest",
     "solid-explorer": "Solid Explorer",
     "brave": "Brave",
-    "nova-launcher": "Nova Launcher",
 }
 
 APKMIRROR_APPS = [
     "youtube", "youtube-music", "reddit", "twitter",
-    "github", "niagara-launcher", "smart-launcher",
-    "solid-explorer", "pydroid3", "gboard", "brave", "nova-launcher",
+    "solid-explorer", "gboard", "brave",
 ]
 
 APPS_CONFIG = {
@@ -61,27 +55,6 @@ APPS_CONFIG = {
         "exclude": [], "enable": [],
         "force_version": "435.0.0.37.76", "force_build": "384109456",
     },
-    "github": {
-        "pkg": "com.github.android", "name": "github", "patch_source": "hoodles",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/github/ffffff", "exclude": [],
-    },
-    "niagara-launcher": {
-        "pkg": "bitpit.launcher", "name": "niagara-launcher", "patch_source": "hoodles",
-        "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=niagaralauncher.app",
-        "exclude": [], "force_version": "1.16.8",
-    },
-    "pydroid3": {
-        "pkg": "ru.iiec.pydroid3", "name": "pydroid3", "patch_source": "hoodles",
-        "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=pydroid3.com", "exclude": [],
-    },
-    "smart-launcher": {
-        "pkg": "ginlemon.flowerfree", "name": "smart-launcher", "patch_source": "hoodles",
-        "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=smartlauncher.net", "exclude": [],
-    },
-    "wps-office": {
-        "pkg": "cn.wps.moffice_eng", "name": "wps-office", "patch_source": "hoodles",
-        "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=wps.com", "exclude": [],
-    },
     "gboard": {
         "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "adobo",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/google/4285F4",
@@ -105,22 +78,16 @@ APPS_CONFIG = {
         "pkg": "com.brave.browser", "name": "brave", "patch_source": "bufferk",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/brave/FB542B", "exclude": [],
     },
-    "nova-launcher": {
-        "pkg": "com.teslacoilsw.launcher", "name": "nova-launcher", "patch_source": "hoodles",
-        "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=novalauncher.com", "exclude": [],
-    },
 }
 
 PROCESS_ORDER = [
     "youtube", "youtube-music", "reddit", "twitter", "instagram",
-    "github", "niagara-launcher", "pydroid3", "smart-launcher",
-    "wps-office", "gboard", "speedtest", "solid-explorer", "brave", "nova-launcher",
+    "gboard", "speedtest", "solid-explorer", "brave",
 ]
 
 PATCH_SOURCES = {
     "morphe": ("MorpheApp", "morphe-patches", "🟢 Morphe"),
     "piko": ("crimera", "piko", "✖️ Piko"),
-    "hoodles": ("hoo-dles", "morphe-patches", "🍃 hoo-dles"),
     "adobo": ("jkennethcarino", "adobo", "🥘 Adobo"),
     "rushi": ("rushiranpise", "morphe-patches", "⚡ Rushiranpise"),
     "bufferk": ("bufferk", "morphe-patches", "🟣 Bufferk"),
@@ -164,6 +131,8 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
         apk_path = await apkmirror.download_apk(selected_version, config["name"], config.get("force_build"))
     else:
         apk_path = await githubdl.download_apk(selected_version, config["name"], config.get("force_build"))
+
+    verify_apk_signature(apk_path, config["name"])
 
     patched_apk = patch_apk(
         desktop, patches, apk_path,
