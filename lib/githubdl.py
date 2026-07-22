@@ -5,14 +5,6 @@ import httpx
 APP_TAGS = {
     "instagram": "instagram",
     "speedtest": "Speedtest",
-    "pydroid3": "Pydroid3",
-    "github": "github",
-    "niagara-launcher": "NiagaraLauncher",
-    "solid-explorer": "SolidExplorer",
-    "gboard": "Gboard",
-    "wps-office": "WPSOffice",
-    "smart-launcher": "SmartLauncher",
-    "brave": "brave",
 }
 
 
