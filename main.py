@@ -62,24 +62,24 @@ APPS_CONFIG = {
         "force_version": "435.0.0.37.76", "force_build": "384109456",
     },
     "github": {
-        "pkg": "com.github.android", "name": "github", "patch_source": "hoodles",
+        "pkg": "com.github.android", "name": "github", "patch_source": "hoo-dles",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/github/ffffff", "exclude": [],
     },
     "niagara-launcher": {
-        "pkg": "bitpit.launcher", "name": "niagara-launcher", "patch_source": "hoodles",
+        "pkg": "bitpit.launcher", "name": "niagara-launcher", "patch_source": "hoo-dles",
         "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=niagaralauncher.app",
         "exclude": [], "force_version": "1.16.8",
     },
     "pydroid3": {
-        "pkg": "ru.iiec.pydroid3", "name": "pydroid3", "patch_source": "hoodles",
+        "pkg": "ru.iiec.pydroid3", "name": "pydroid3", "patch_source": "hoo-dles",
         "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=pydroid3.com", "exclude": [],
     },
     "smart-launcher": {
-        "pkg": "ginlemon.flowerfree", "name": "smart-launcher", "patch_source": "hoodles",
+        "pkg": "ginlemon.flowerfree", "name": "smart-launcher", "patch_source": "hoo-dles",
         "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=smartlauncher.net", "exclude": [],
     },
     "wps-office": {
-        "pkg": "cn.wps.moffice_eng", "name": "wps-office", "patch_source": "hoodles",
+        "pkg": "cn.wps.moffice_eng", "name": "wps-office", "patch_source": "hoo-dles",
         "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=wps.com", "exclude": [],
     },
     "gboard": {
@@ -106,7 +106,7 @@ APPS_CONFIG = {
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/brave/FB542B", "exclude": [],
     },
     "nova-launcher": {
-        "pkg": "com.teslacoilsw.launcher", "name": "nova-launcher", "patch_source": "hoodles",
+        "pkg": "com.teslacoilsw.launcher", "name": "nova-launcher", "patch_source": "hoo-dles",
         "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=novalauncher.com", "exclude": [],
     },
 }
@@ -120,7 +120,7 @@ PROCESS_ORDER = [
 PATCH_SOURCES = {
     "morphe": ("MorpheApp", "morphe-patches", "🟢 Morphe"),
     "piko": ("crimera", "piko", "✖️ Piko"),
-    "hoodles": ("hoo-dles", "morphe-patches", "🍃 hoo-dles"),
+    "hoo-dles": ("hoo-dles", "morphe-patches", "🍃 hoo-dles"),
     "adobo": ("jkennethcarino", "adobo", "🥘 Adobo"),
     "rushi": ("rushiranpise", "morphe-patches", "⚡ Rushiranpise"),
     "bufferk": ("bufferk", "morphe-patches", "🟣 Bufferk"),
