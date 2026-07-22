@@ -1,9 +1,13 @@
+import asyncio
 import json
 import re
+import subprocess
+import time
+import zipfile
 from pathlib import Path
 
-import httpx
 import nodriver as uc
+from nodriver import cdp
 
 from .versions import to_apkmirror_version
 
@@ -42,17 +46,73 @@ USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrom
 # kodunun page.evaluate() yaklasimiyla ayni mantik, nodriver'da daha guvenilir.
 
 
-async def _start_browser():
-    return await uc.start(
-        headless=True,
-        no_sandbox=True,
-        browser_args=[
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-blink-features=AutomationControlled",
-            f"--user-agent={USER_AGENT}",
-        ],
-    )
+def _kill_stray_chrome() -> None:
+    """Clean up orphaned Chrome processes left behind by a failed uc.start().
+
+    If uc.start() fails to establish the CDP websocket, the Chrome process it
+    already spawned is never handed back to us, so it never gets stopped.
+    Left running, it can block/confuse the next browser launch, which is
+    what causes consecutive "Failed to connect to browser" errors to chain
+    together (e.g. YouTube -> YouTube Music -> Reddit all failing in a row).
+    """
+    for pattern in ("--remote-debugging-port", "headless_shell", "chrome_crashpad"):
+        try:
+            subprocess.run(["pkill", "-9", "-f", pattern], check=False,
+                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
+
+async def _start_browser(retries: int = 3):
+    last_err: Exception | None = None
+
+    for attempt in range(1, retries + 1):
+        try:
+            return await uc.start(
+                headless=True,
+                sandbox=False,  # real nodriver Config field (no_sandbox=True was a no-op)
+                browser_args=[
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                    "--disable-blink-features=AutomationControlled",
+                    f"--user-agent={USER_AGENT}",
+                ],
+            )
+        except Exception as e:
+            last_err = e
+            print(f"⚠️ Browser start failed (attempt {attempt}/{retries}): {e}")
+            _kill_stray_chrome()
+            await asyncio.sleep(2 * attempt)
+
+    raise RuntimeError(f"Failed to start browser after {retries} attempts: {last_err}")
+
+
+async def _safe_stop(browser) -> None:
+    try:
+        browser.stop()
+    except Exception:
+        pass
+
+
+async def warmup_browser() -> None:
+    """Pay Chrome's one-time cold-start cost up front.
+
+    On a fresh runner, the very first Chrome launch is slow (disk cache /
+    profile setup) and reliably misses nodriver's CDP connect timeout, even
+    though every launch after it connects almost instantly. If that first
+    launch happens to be triggered by the first real app in the pipeline
+    (e.g. YouTube), that app pays the cost and can exhaust its retries.
+    Call this once, before processing any apps, so whichever app goes
+    first doesn't have to absorb the cold start itself. Failures here are
+    expected/harmless - the goal is just to "use up" the slow launch.
+    """
+    print("🔥 Warming up browser (first Chrome launch is slow, this is expected)...")
+    try:
+        browser = await _start_browser(retries=1)
+        await _safe_stop(browser)
+        print("✅ Browser warm-up done")
+    except Exception as e:
+        print(f"⚠️ Browser warm-up attempt failed (expected, continuing): {e}")
 
 
 async def _row_count(tab) -> int:
@@ -118,6 +178,7 @@ async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> s
         const allowedArchs = ['universal', 'evrensel', 'noarch', 'arm64-v8a', 'arm64-v8a + armeabi-v7a', 'arm64-v8a + armeabi'];
         const forceBuild = {json.dumps(force_build)};
         const appName = {json.dumps(app_name)};
+        const debugRows = [];
 
         for (const row of rows) {{
             const cells = row.querySelectorAll('.table-cell');
@@ -126,16 +187,19 @@ async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> s
             const link = cells[0].querySelector('a.accent_color');
             if (!link) continue;
 
-            if (forceBuild && !cells[0].innerText.includes(forceBuild)) continue;
-
             const badge = cells[0].querySelector('.apkm-badge');
             const badgeText = badge ? badge.innerText.toUpperCase() : '';
             const isBundle = badgeText.includes('BUNDLE') || badgeText.includes('PAKET');
-
-            if (appName === 'instagram' && !isBundle) continue;
-
             const archText = (cells[1].innerText || '').trim().toLowerCase();
             const dpiText = (cells[3].innerText || '').trim().toLowerCase();
+
+            debugRows.push({{
+                name: (cells[0].innerText || '').trim().slice(0, 60),
+                badge: badgeText, arch: archText, dpi: dpiText,
+            }});
+
+            if (forceBuild && !cells[0].innerText.includes(forceBuild)) continue;
+            if (appName === 'instagram' && !isBundle) continue;
 
             const isTargetArch = archText === '' || allowedArchs.some(a => archText.includes(a));
             const isTargetDpi = dpiText === '' || dpiText.includes('nodpi') || dpiText.includes('anydpi') || /\\d+-640dpi/.test(dpiText);
@@ -149,10 +213,93 @@ async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> s
             }}
         }}
 
-        return standaloneNodpi || standaloneAnyDpi || bundleNodpi || bundleAnyDpi;
+
+        const chosen = standaloneNodpi || standaloneAnyDpi || bundleNodpi || bundleAnyDpi;
+        return {{ url: chosen, rows: debugRows }};
     }})()
     """
-    return await tab.evaluate(js)
+    result = await tab.evaluate(js)
+    rows = (result or {}).get("rows") or []
+    url = (result or {}).get("url")
+
+    if not url and rows:
+        print(f"⚠️ No variant matched. APKMirror listed {len(rows)} build(s) on this page:")
+        for r in rows:
+            print(f"    - {r.get('name')!r} | badge={r.get('badge')!r} arch={r.get('arch')!r} dpi={r.get('dpi')!r}")
+
+    return url
+
+
+async def _download_via_browser(tab, final_url: str, out_dir: Path, timeout_s: int = 180) -> Path:
+    """Download the APK using Chrome's own network stack.
+
+    APKMirror sits behind a WAF that TLS/HTTP-fingerprints requests. Pages
+    load fine through the real browser (which is why we get all the way to
+    a final URL), but a bare httpx GET to that same URL gets 403'd because
+    it doesn't look like a browser request - even carrying the right
+    cookies. Routing the actual download through Chrome (via CDP's download
+    interception) reuses the exact same TLS/HTTP fingerprint and cookie jar
+    that already passed the WAF, so it goes through cleanly.
+    """
+    out_dir.mkdir(parents=True, exist_ok=True)
+    before = {p.name for p in out_dir.iterdir()}
+
+    await tab.send(cdp.browser.set_download_behavior(behavior="allow", download_path=str(out_dir)))
+    await tab.get(final_url)
+
+    deadline = time.time() + timeout_s
+    stable_candidate: Path | None = None
+    last_size = -1
+
+    while time.time() < deadline:
+        await asyncio.sleep(1.0)
+        current = {p.name for p in out_dir.iterdir()}
+        new_names = [n for n in (current - before) if not n.endswith(".crdownload")]
+
+        if new_names:
+            candidate = out_dir / new_names[0]
+            try:
+                size = candidate.stat().st_size
+            except FileNotFoundError:
+                continue
+
+            if size > 0 and size == last_size:
+                stable_candidate = candidate
+                break
+            last_size = size
+        else:
+            last_size = -1
+
+    if not stable_candidate:
+        raise RuntimeError("Browser download did not complete in time")
+
+    return stable_candidate
+
+
+def _looks_like_split_bundle(path: Path) -> bool:
+    """Detect whether a downloaded file is actually a split-APK bundle
+    (what APKMirror calls a "BUNDLE" build - one zip containing base.apk +
+    several split_*.apk files) rather than a single installable APK.
+
+    This matters because the variant picker falls back to a bundle build
+    whenever no standalone build exists for a given version. Instagram's
+    bundle downloads (via GitHub, already named *.apkm) get merged
+    correctly by the patcher because it recognises the .apkm extension.
+    If we blindly force a bundle download's filename to end in ".apk" (as
+    this module used to), the patcher tries to read it as a single APK,
+    can't find AndroidManifest.xml at the top level, and crashes. Detect
+    the real structure instead of trusting the URL's file extension.
+    """
+    try:
+        with zipfile.ZipFile(path) as zf:
+            names = zf.namelist()
+    except zipfile.BadZipFile:
+        return False
+
+    if "AndroidManifest.xml" in names:
+        return False
+
+    return sum(1 for n in names if n.lower().endswith(".apk")) >= 1
 
 
 async def download_apk(version: str, app_name: str = "youtube", force_build: str | None = None) -> str:
@@ -205,33 +352,24 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
         out_dir = Path(__file__).resolve().parent.parent / "downloads"
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        cookie_dict = {}
-        try:
-            cookies = await browser.cookies.get_all()
-            cookie_dict = {c.name: c.value for c in (cookies or [])}
-        except Exception:
-            pass
+        downloaded_path = await _download_via_browser(tab, final_url, out_dir)
 
-        file_name = final_url.split("/")[-1].split("?")[0] or f"{app_name}.apk"
-        if not file_name.endswith(".apk"):
-            file_name = f"{app_name}-{version}.apk"
+        is_bundle = _looks_like_split_bundle(downloaded_path)
+        correct_ext = ".apkm" if is_bundle else ".apk"
+        if is_bundle:
+            print("📦 Detected split-APK bundle (no standalone build was available) - saving as .apkm")
+
+        url_name = final_url.split("/")[-1].split("?")[0]
+        if url_name and url_name.lower().endswith((".apk", ".apkm", ".xapk")) and not is_bundle:
+            file_name = url_name
+        else:
+            file_name = f"{app_name}-{version}{correct_ext}"
 
         file_path = out_dir / file_name
-
-        headers = {
-            "User-Agent": USER_AGENT,
-            "Referer": confirm_href,
-            "Accept": "application/vnd.android.package-archive,application/octet-stream,*/*",
-            "Accept-Language": "en-US,en;q=0.9",
-        }
-
-        async with httpx.AsyncClient(follow_redirects=True, timeout=None, cookies=cookie_dict) as client:
-            async with client.stream("GET", final_url, headers=headers) as res:
-                if res.status_code >= 400:
-                    raise RuntimeError(f"Download HTTP {res.status_code}")
-                with open(file_path, "wb") as f:
-                    async for chunk in res.aiter_bytes():
-                        f.write(chunk)
+        if downloaded_path != file_path:
+            if file_path.exists():
+                file_path.unlink()
+            downloaded_path.replace(file_path)
 
         size = file_path.stat().st_size
         if size < 1024:
@@ -241,7 +379,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
         return str(file_path)
 
     finally:
-        browser.stop()
+        await _safe_stop(browser)
 
 
 async def get_latest_listing(app_name: str) -> dict | None:
@@ -281,4 +419,4 @@ async def get_latest_listing(app_name: str) -> dict | None:
         return {"version": match.group(0) if match else None, "href": href}
 
     finally:
-        browser.stop()
+        await _safe_stop(browser)
