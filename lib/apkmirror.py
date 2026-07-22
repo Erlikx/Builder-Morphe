@@ -178,6 +178,7 @@ async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> s
         const allowedArchs = ['universal', 'evrensel', 'noarch', 'arm64-v8a', 'arm64-v8a + armeabi-v7a', 'arm64-v8a + armeabi'];
         const forceBuild = {json.dumps(force_build)};
         const appName = {json.dumps(app_name)};
+        const debugRows = [];
 
         for (const row of rows) {{
             const cells = row.querySelectorAll('.table-cell');
@@ -186,16 +187,19 @@ async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> s
             const link = cells[0].querySelector('a.accent_color');
             if (!link) continue;
 
-            if (forceBuild && !cells[0].innerText.includes(forceBuild)) continue;
-
             const badge = cells[0].querySelector('.apkm-badge');
             const badgeText = badge ? badge.innerText.toUpperCase() : '';
             const isBundle = badgeText.includes('BUNDLE') || badgeText.includes('PAKET');
-
-            if (appName === 'instagram' && !isBundle) continue;
-
             const archText = (cells[1].innerText || '').trim().toLowerCase();
             const dpiText = (cells[3].innerText || '').trim().toLowerCase();
+
+            debugRows.push({{
+                name: (cells[0].innerText || '').trim().slice(0, 60),
+                badge: badgeText, arch: archText, dpi: dpiText,
+            }});
+
+            if (forceBuild && !cells[0].innerText.includes(forceBuild)) continue;
+            if (appName === 'instagram' && !isBundle) continue;
 
             const isTargetArch = archText === '' || allowedArchs.some(a => archText.includes(a));
             const isTargetDpi = dpiText === '' || dpiText.includes('nodpi') || dpiText.includes('anydpi') || /\\d+-640dpi/.test(dpiText);
@@ -209,10 +213,21 @@ async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> s
             }}
         }}
 
-        return standaloneNodpi || standaloneAnyDpi || bundleNodpi || bundleAnyDpi;
+
+        const chosen = standaloneNodpi || standaloneAnyDpi || bundleNodpi || bundleAnyDpi;
+        return {{ url: chosen, rows: debugRows }};
     }})()
     """
-    return await tab.evaluate(js)
+    result = await tab.evaluate(js)
+    rows = (result or {}).get("rows") or []
+    url = (result or {}).get("url")
+
+    if not url and rows:
+        print(f"⚠️ No variant matched. APKMirror listed {len(rows)} build(s) on this page:")
+        for r in rows:
+            print(f"    - {r.get('name')!r} | badge={r.get('badge')!r} arch={r.get('arch')!r} dpi={r.get('dpi')!r}")
+
+    return url
 
 
 async def _download_via_browser(tab, final_url: str, out_dir: Path, timeout_s: int = 180) -> Path:
