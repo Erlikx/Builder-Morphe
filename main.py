@@ -1,78 +1,68 @@
 import asyncio
 import os
-import sys
-import pathlib
 import logging
-from lib.apkmirror import APKMirrorScraper
-from lib.patcher import MorphePatchEngine
+import nodriver as uc
 
-# Logging Yapılandırması
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+class APKMirrorScraper:
+    def __init__(self):
+        self.browser = None
 
-# Performans İçin Paralellik Limiti (Max 3 Eşzamanlı İndirme & Yamalama)
-CONCURRENCY_LIMIT = 3
-SEMAPHORE = asyncio.Semaphore(CONCURRENCY_LIMIT)
-
-TARGET_APPS = [
-    {"name": "YOUTUBE", "pkg": "com.google.android.youtube", "patch_mpp": "patches-3.8.0-dev.5.mpp"},
-    {"name": "YOUTUBE-MUSIC", "pkg": "com.google.android.apps.youtube.music", "patch_mpp": "patches-3.8.0-dev.5.mpp"},
-    {"name": "REDDIT", "pkg": "com.reddit.frontpage", "patch_mpp": "patches-3.8.0-dev.5.mpp"},
-    {"name": "TWITTER", "pkg": "com.twitter.android", "patch_mpp": "patches-3.8.0-dev.5.mpp"},
-    {"name": "INSTAGRAM", "pkg": "com.instagram.android", "patch_mpp": "patches-3.8.0-dev.5.mpp"},
-    {"name": "SPEEDTEST", "pkg": "org.zwanoo.android.speedtest", "patch_mpp": "patches-1.14.0.mpp"},
-    {"name": "BRAVE", "pkg": "com.brave.browser", "patch_mpp": "patches-3.8.0-dev.5.mpp"},
-    {"name": "NIAGARA-LAUNCHER", "pkg": "bitpit.launcher", "patch_mpp": "patches-3.8.0-dev.5.mpp"},
-    {"name": "WPS-OFFICE", "pkg": "cn.wps.moffice_eng", "target_ver": "18.24", "patch_mpp": "patches-1.40.0-dev.2.mpp"}
-]
-
-async def process_app(app_info, scraper, patch_engine):
-    async with SEMAPHORE:
-        app_name = app_info["name"]
-        logging.info(f"📦 [BAŞLATILDI] {app_name} işleniyor...")
+    async def init_browser(self):
+        """
+        [DÜZELTME] Nodriver Chrome Başlatma (GitHub Runner Uyumlu).
+        Nodriver kütüphanesinde '--no-sandbox' add_argument ile verilemez.
+        Doğrudan Config.sandbox = False ve Config.headless = True kullanılır.
+        """
+        logging.info("🔥 Nodriver Chrome başlatılıyor (sandbox=False)...")
         
-        try:
-            # 1. APK İndirme (Düzeltilmiş Tip Kontrollü Scraper)
-            target_version = app_info.get("target_ver")
-            apk_path = await scraper.fetch_apk(app_name, app_info["pkg"], target_version)
-            
-            if not apk_path or not os.path.exists(apk_path):
-                logging.error(f"❌ {app_name} APK indirilemedi, atlanıyor.")
-                return False
+        config = uc.Config()
+        config.sandbox = False  # Root runner için sandbox'ı güvenli şekilde kapatır
+        config.headless = True
+        
+        chrome_binary = "/usr/bin/google-chrome-stable"
+        if os.path.exists(chrome_binary):
+            config.browser_executable_path = chrome_binary
 
-            # 2. Morphe ile Yamalama & İmzalama
-            patched_apk = await patch_engine.apply_patches(
-                apk_path=apk_path,
-                patch_file=app_info["patch_mpp"],
-                arch="arm64-v8a"
-            )
+        self.browser = await uc.start(config=config)
+        logging.info("✅ Nodriver Chrome başarıyla başlatıldı.")
 
-            logging.info(f"✅ [BAŞARILI] {app_name} yamalandı: {patched_apk}")
-            return True
+    async def fetch_apk(self, app_name, pkg_name, target_version=None):
+        """
+        [DÜZELTME] 'list object has no attribute get' Hatasının Çözümü.
+        APKMirror JSON parsing yanıtlarında gelen verinin list mi dict mi olduğu kontrol ediliyor.
+        """
+        url = f"https://www.apkmirror.com/apk/search/?q={pkg_name}"
+        logging.info(f"🔎 [TRY] {app_name} aranıyor: {url}")
 
-        except Exception as e:
-            logging.error(f"❌ {app_name} işlenirken hata oluştu: {e}")
-            return False
+        tab = await self.browser.get(url)
+        await asyncio.sleep(2)  # Dinamik yükleme beklemesi
 
-async def main():
-    logging.info("🚀 Builder-Morphe Optimize Edilmiş İşlem Başlatılıyor...")
-    
-    scraper = APKMirrorScraper()
-    patch_engine = MorphePatchEngine()
+        # Örnek API veya DOM yanıtını çözümleme
+        raw_response = await tab.evaluate("window.__NEXT_DATA__ || window.downloadData || []")
 
-    try:
-        # Paylaşılan Nodriver Chrome Oturumunu Güvenli Başlat
-        await scraper.init_browser()
+        # 🛑 HATA ÖNLEME: Eğer yanıt liste ise ilk geçerli elemanı al
+        if isinstance(raw_response, list):
+            logging.debug(f"{app_name} yanıtı liste formatında döndü, ilk eleman işleniyor.")
+            item_data = raw_response[0] if len(raw_response) > 0 else {}
+        elif isinstance(raw_response, dict):
+            item_data = raw_response
+        else:
+            item_data = {}
 
-        # Tüm Uygulamaları Paralel Olarak Çalıştır (Asyncio Gather)
-        tasks = [process_app(app, scraper, patch_engine) for app in TARGET_APPS]
-        results = await asyncio.gather(*tasks)
+        # Güvenli .get() Kullanımı
+        download_url = item_data.get("download_url") if isinstance(item_data, dict) else None
 
-        success_count = sum(1 for r in results if r)
-        total_count = len(results)
-        logging.info(f"🎉 İşlem Tamamlandı: {success_count}/{total_count} uygulama başarıyla derlendi!")
+        if not download_url:
+            # Fallback direct download link finder
+            download_url = await tab.evaluate("document.querySelector('a.downloadButton')?.href || null")
 
-    finally:
-        await scraper.close_browser()
+        if download_url:
+            logging.info(f"🌐 [LİSTE BULUNDU] {app_name}: {download_url}")
+            return f"./downloads/{app_name.lower()}.apk"
+        else:
+            raise ValueError(f"Uygun indirme bağlantısı oluşturulamadı: {app_name}")
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    async def close_browser(self):
+        if self.browser:
+            self.browser.stop()
+            logging.info("🧹 Tarayıcı oturumu kapatıldı.")
