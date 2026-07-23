@@ -8,6 +8,7 @@ import zipfile
 from pathlib import Path
 
 _SIG_FILE = Path(os.getenv("KNOWN_SIGNATURES_PATH", Path.cwd() / "known_signatures.json"))
+_PENDING_FILE = Path(os.getenv("PENDING_SIGNATURES_PATH", Path.cwd() / "pending_signatures.json"))
 _DIGEST_RE = re.compile(r"certificate SHA-256 digest:\s*([0-9a-fA-F:]+)")
 
 
@@ -75,17 +76,17 @@ def get_apk_certificate_fingerprints(apk_path: str) -> list[str]:
     return fingerprints
 
 
-def _load_known() -> dict:
-    if _SIG_FILE.exists():
+def _load_json(path: Path) -> dict:
+    if path.exists():
         try:
-            return json.loads(_SIG_FILE.read_text())
+            return json.loads(path.read_text())
         except Exception:
-            print(f"⚠️ {_SIG_FILE} okunamadı/bozuk, boş kabul ediliyor.")
+            print(f"⚠️ {path} okunamadı/bozuk, boş kabul ediliyor.")
     return {}
 
 
-def _save_known(data: dict) -> None:
-    _SIG_FILE.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
+def _save_json(path: Path, data: dict) -> None:
+    path.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n")
 
 
 def _resolve_verifiable_apk(path: str) -> tuple[str, str | None]:
@@ -124,20 +125,22 @@ def _resolve_verifiable_apk(path: str) -> tuple[str, str | None]:
 def verify_apk_signature(apk_path: str, app_name: str) -> None:
     """
     İndirilen (henüz patchlenmemiş) APK'nın (veya .apkm/.xapk bundle'ının
-    içindeki base.apk'nın) imza sertifikası parmak izini daha önce
-    kaydedilmiş (pinned) değerle karşılaştırır.
+    içindeki base.apk'nın) imza sertifikası parmak izini known_signatures.json
+    içinde ONAYLI (pinned) olarak kayıtlı değerle karşılaştırır.
 
-    - İlk çalıştırmada: parmak izi hesaplanır, known_signatures.json'a
-      kaydedilir (trust-on-first-use) ve bariz bir uyarı basılır. Bu ilk
-      kayıt OTOMATİK GÜVENLİ DEMEK DEĞİLDİR — geliştiricinin resmi
-      kaynağıyla (Play Store girişi, resmi web sitesi vb.) elle
-      karşılaştırılmalıdır.
-    - Sonraki çalıştırmalarda: hesaplanan parmak izi kayıtlı değerle
-      eşleşmezse işlem güvenlik nedeniyle DURDURULUR (olası tedarik
-      zinciri saldırısı / beklenmedik kaynaktan gelen sahte APK).
+    - known_signatures.json'da bir kayıt VARSA: parmak izi eşleşmezse işlem
+      güvenlik nedeniyle DURDURULUR (olası tedarik zinciri saldırısı /
+      beklenmedik kaynaktan gelen sahte APK).
+    - known_signatures.json'da bir kayıt YOKSA: APK artık otomatik olarak
+      güvenilip yamalanıp yayınlanmıyor. Hesaplanan parmak izi
+      pending_signatures.json'a yazılır ve işlem bu uygulama için
+      DURDURULUR. Bu parmak izini geliştiricinin resmi kaynağıyla
+      (Play Store girişi, resmi web sitesi vb.) elle karşılaştırıp
+      doğruladıktan sonra known_signatures.json'a taşıman gerekir - ancak
+      o zaman bu uygulama yamalanabilir hale gelir.
 
     SKIP_SIGNATURE_VERIFY=1 ortam değişkeni ile (yalnızca yerel/geliştirme
-    amaçlı) bu kontrol atlanabilir.
+    amaçlı) bu kontrol tamamen atlanabilir.
     """
     if os.getenv("SKIP_SIGNATURE_VERIFY") == "1":
         print(f"⚠️ SKIP_SIGNATURE_VERIFY=1: {app_name} için imza doğrulaması atlanıyor.")
@@ -154,19 +157,23 @@ def verify_apk_signature(apk_path: str, app_name: str) -> None:
         if temp_dir:
             shutil.rmtree(temp_dir, ignore_errors=True)
 
-    known = _load_known()
+    known = _load_json(_SIG_FILE)
     pinned = known.get(app_name)
 
     if pinned is None:
-        known[app_name] = fingerprints[0]
-        _save_known(known)
-        print(
-            f"🆕 {app_name} için imza ilk kez görüldü ve kaydedildi: {fingerprints[0]}\n"
-            f"   ⚠️ Bu parmak izini geliştiricinin resmi kaynağıyla elle karşılaştırıp "
-            f"doğrulamadan bu APK'ya güvenme. Doğruladıktan sonra known_signatures.json "
-            f"dosyasını commit'le, böylece sonraki çalıştırmalar buna göre korunur."
+        pending = _load_json(_PENDING_FILE)
+        already_pending = pending.get(app_name) == fingerprints[0]
+        pending[app_name] = fingerprints[0]
+        _save_json(_PENDING_FILE, pending)
+
+        raise Exception(
+            f"🚫 {app_name} için onaylı (pinned) bir imza kaydı yok - APK YAMALANMADI/YAYINLANMADI.\n"
+            f"   Hesaplanan parmak izi pending_signatures.json'a "
+            f"{'zaten kayıtlıydı' if already_pending else 'kaydedildi'}: {fingerprints[0]}\n"
+            f"   Bunu geliştiricinin resmi kaynağıyla (Play Store girişi, resmi web sitesi vb.) "
+            f"ELLE karşılaştırıp doğrula, sonra known_signatures.json'a ekle. "
+            f"Ancak o zaman bu uygulama yamalanabilir."
         )
-        return
 
     if pinned not in fingerprints:
         raise Exception(
