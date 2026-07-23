@@ -1,5 +1,6 @@
 import asyncio
 import json
+import random
 import re
 import time
 from pathlib import Path
@@ -19,24 +20,73 @@ APP_SITES = {
     "speedtest": {"org": "ookla", "slug": "speedtest"},
     "solid-explorer": {"org": "neatbytes", "slug": "solid-explorer-file-manager"},
     "brave": {"org": "brave-software", "slug": "brave-browser", "release_slug": "brave-private-web-browser-vpn"},
+    "proton-vpn": {
+        "org": "proton-technologies-ag",
+        "slug": "protonvpn-secure-and-free-vpn",
+        "release_slug": "proton-vpn-fast-secure-vpn",
+    },
+    "tiktok": {"org": "tiktok-pte-ltd", "slug": "tik-tok-including-musical-ly", "release_slug": "tiktok"},
+    "warp": {
+        "org": "cloudflare",
+        "slug": "1-1-1-1-faster-safer-internet",
+        "release_slug": "1-1-1-1-warp-safer-internet",
+    },
+    "inshot": {
+        "org": "inshot-inc",
+        "slug": "inshot-video-editor-photo-editor",
+        "release_slug": "video-editor-maker-inshot",
+    },
+    "google-photos": {"org": "google-inc", "slug": "photos", "release_slug": "google-photos"},
 }
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0 Safari/537.36"
 
+DIAGNOSTICS_DIR = Path(__file__).resolve().parent.parent / "diagnostics"
+
+_CHALLENGE_MARKERS = [
+    "just a moment",
+    "checking your browser",
+    "attention required! | cloudflare",
+    "verify you are human",
+    "cf-browser-verification",
+    "cf_chl_",
+    "ddos protection by cloudflare",
+]
+
 # NOT: nodriver'ın element-handle tabanli select()/select_all() API'si CDP
 # node referanslarini sayfa gecisleri arasinda kaybediyor. Bu yuzden burada
 # SADECE tab.get() (navigasyon) ve tab.evaluate() (JS ile veri cekme/tiklama)
-# kullaniliyor. Dosya indirme de artik ayri bir httpx istegi yerine CDP'nin
-# kendi indirme mekanizmasi (Browser.setDownloadBehavior) ile, tarayicinin
-# GERCEK oturumu (cookie/Cloudflare dogrulamasi dahil) uzerinden yapiliyor -
-# APKMirror'in indirme linkini disaridan istekle 403'lemesi sorununu cozer.
+# kullaniliyor. Dosya indirme de ayri bir httpx istegi yerine CDP'nin kendi
+# indirme mekanizmasi (Browser.setDownloadBehavior) ile, tarayicinin GERCEK
+# oturumu (cookie/Cloudflare dogrulamasi dahil) uzerinden yapiliyor.
+
+_shared_browser = None
+_downloads_ready = False
 
 
-async def _start_browser(retries: int = 4, base_delay: float = 3.0):
+async def _jitter_sleep(base: float, spread: float = 0.6) -> None:
+    """Sabit sleep() yerine rastgele (insan benzeri) bekleme."""
+    await asyncio.sleep(base + random.uniform(0, spread))
+
+
+async def get_browser():
+    """
+    Tüm run boyunca TEK bir tarayıcı örneği paylaşılır - her uygulama için
+    yeniden başlatmak hem yavaş hem de "art arda yeni tarayıcı açılışı"
+    paterni oluşturarak bot tespiti riskini artırıyordu.
+    """
+    global _shared_browser
+
+    if _shared_browser is not None:
+        return _shared_browser
+
+    retries = 4
+    base_delay = 3.0
     last_err = None
+
     for attempt in range(retries):
         try:
-            return await uc.start(
+            _shared_browser = await uc.start(
                 headless=True,
                 no_sandbox=True,
                 browser_args=[
@@ -46,48 +96,81 @@ async def _start_browser(retries: int = 4, base_delay: float = 3.0):
                     f"--user-agent={USER_AGENT}",
                 ],
             )
+            return _shared_browser
         except Exception as e:
             last_err = e
             delay = base_delay * (attempt + 1)
             print(f"⚠️ Tarayıcı başlatılamadı (deneme {attempt + 1}/{retries}): {e} - {delay:.0f}s sonra tekrar denenecek")
             await asyncio.sleep(delay)
+
     raise last_err
 
 
+async def close_browser():
+    """Run'ın en sonunda main.py tarafından çağrılır."""
+    global _shared_browser, _downloads_ready
+    if _shared_browser is not None:
+        try:
+            _shared_browser.stop()
+        except Exception:
+            pass
+        _shared_browser = None
+        _downloads_ready = False
+
+
 async def _enable_downloads(tab, out_dir: Path):
+    global _downloads_ready
+    if _downloads_ready:
+        return
     try:
         await tab.send(cdp.browser.set_download_behavior(behavior="allow", download_path=str(out_dir)))
+        _downloads_ready = True
     except Exception as e:
         print(f"⚠️ set_download_behavior başarısız (yine de denenecek): {e}")
 
 
-async def _wait_for_download(out_dir: Path, existing: set, timeout: float = 60.0):
-    deadline = time.monotonic() + timeout
-    last_sizes = {}
+async def _is_challenge_page(tab) -> bool:
+    try:
+        content = await tab.evaluate("(document.title + ' ' + document.body.innerText.slice(0, 500)).toLowerCase()")
+    except Exception:
+        return False
+    if not content:
+        return False
+    return any(marker in content for marker in _CHALLENGE_MARKERS)
 
-    while time.monotonic() < deadline:
-        await asyncio.sleep(1.0)
-        try:
-            current = {f.name: f for f in out_dir.iterdir() if f.is_file()}
-        except FileNotFoundError:
-            continue
 
-        new_files = [
-            f for name, f in current.items()
-            if name not in existing and not name.endswith((".crdownload", ".tmp"))
-        ]
-        if not new_files:
-            continue
+async def _save_diagnostic_screenshot(tab, label: str):
+    try:
+        DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
+        ts = int(time.time())
+        path = DIAGNOSTICS_DIR / f"{label}-{ts}.png"
+        await tab.save_screenshot(str(path))
+        print(f"📸 Teşhis ekran görüntüsü kaydedildi: {path}")
+    except Exception as e:
+        print(f"⚠️ Ekran görüntüsü alınamadı: {e}")
 
-        candidate = max(new_files, key=lambda f: f.stat().st_mtime)
-        size = candidate.stat().st_size
 
-        if size > 0 and last_sizes.get(candidate.name) == size:
-            return candidate
+async def _goto(tab, url: str, wait: float = 1.2, challenge_retries: int = 3, label: str = "sayfa"):
+    """
+    Navigasyon + Cloudflare challenge tespiti. Sayfa "Just a moment..." gibi
+    bir doğrulama ekranıyla karşılaşırsa, normal bir hata gibi davranmak
+    yerine biraz bekleyip tekrar dener (challenge genelde birkaç saniye
+    içinde kendiliğinden geçer).
+    """
+    for attempt in range(challenge_retries + 1):
+        await tab.get(url)
+        await _jitter_sleep(wait)
 
-        last_sizes[candidate.name] = size
+        if await _is_challenge_page(tab):
+            if attempt < challenge_retries:
+                backoff = 3.0 * (attempt + 1)
+                print(f"🛡️ Cloudflare doğrulama ekranı tespit edildi ({label}), {backoff:.0f}s bekleyip tekrar denenecek...")
+                await _jitter_sleep(backoff, spread=1.5)
+                continue
+            print(f"⚠️ Cloudflare doğrulama ekranı hâlâ geçmedi ({label}), yine de devam ediliyor...")
+            await _save_diagnostic_screenshot(tab, f"cloudflare-{label}")
 
-    return None
+        return
 
 
 async def _row_count(tab) -> int:
@@ -100,8 +183,7 @@ async def _row_count(tab) -> int:
 
 async def _page_exists(tab, url: str) -> bool:
     try:
-        await tab.get(url)
-        await tab.sleep(1.0)
+        await _goto(tab, url, wait=1.0, label="direct-try")
         return (await _row_count(tab)) > 0
     except Exception:
         return False
@@ -137,12 +219,12 @@ async def _resolve_list_url(tab, app_config: dict, version: str) -> str:
     """
 
     for attempt in range(2):
-        await tab.get(listing_url)
-        await tab.sleep(1.5 + attempt)
+        await _goto(tab, listing_url, wait=1.5 + attempt, label="listing-scan")
         found_url = await tab.evaluate(js)
         if found_url:
             return found_url
 
+    await _save_diagnostic_screenshot(tab, f"no-match-{app_config['slug']}")
     raise RuntimeError(f"No APKMirror release page found for version {version}")
 
 
@@ -191,6 +273,35 @@ async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> s
     return await tab.evaluate(js)
 
 
+async def _wait_for_download(out_dir: Path, existing: set, timeout: float = 60.0):
+    deadline = time.monotonic() + timeout
+    last_sizes = {}
+
+    while time.monotonic() < deadline:
+        await asyncio.sleep(1.0)
+        try:
+            current = {f.name: f for f in out_dir.iterdir() if f.is_file()}
+        except FileNotFoundError:
+            continue
+
+        new_files = [
+            f for name, f in current.items()
+            if name not in existing and not name.endswith((".crdownload", ".tmp"))
+        ]
+        if not new_files:
+            continue
+
+        candidate = max(new_files, key=lambda f: f.stat().st_mtime)
+        size = candidate.stat().st_size
+
+        if size > 0 and last_sizes.get(candidate.name) == size:
+            return candidate
+
+        last_sizes[candidate.name] = size
+
+    return None
+
+
 async def download_apk(version: str, app_name: str = "youtube", force_build: str | None = None) -> str:
     app_config = APP_SITES.get(app_name)
     if not app_config:
@@ -199,28 +310,27 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
     out_dir = Path(__file__).resolve().parent.parent / "downloads"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    browser = await _start_browser()
+    browser = await get_browser()
+    tab = browser.main_tab
 
     try:
-        tab = browser.main_tab
         await _enable_downloads(tab, out_dir)
 
         list_url = await _resolve_list_url(tab, app_config, version)
         print("🌐 LIST:", list_url)
 
-        await tab.get(list_url)
-        await tab.sleep(1.2)
+        await _goto(tab, list_url, wait=1.2, label="list-page")
 
         variant_url = await _extract_variant_url(tab, force_build, app_name)
         if not variant_url:
+            await _save_diagnostic_screenshot(tab, f"no-variant-{app_name}")
             raise RuntimeError("No matching variant found on APKMirror")
         if variant_url.startswith("/"):
             variant_url = "https://www.apkmirror.com" + variant_url
 
         print("➡️ VARIANT:", variant_url)
 
-        await tab.get(variant_url)
-        await tab.sleep(1.2)
+        await _goto(tab, variant_url, wait=1.2, label="variant-page")
 
         existing_before = {f.name for f in out_dir.iterdir() if f.is_file()}
 
@@ -231,7 +341,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
 
         if not downloaded:
             print("⚠️ Doğrudan indirme başlamadı, confirm sayfası bekleniyor...")
-            await tab.sleep(1.5)
+            await _jitter_sleep(1.5)
 
             final_href = await tab.evaluate(
                 "(() => { const el = document.querySelector('#download-link'); return el ? el.getAttribute('href') : null; })()"
@@ -243,17 +353,42 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
                 downloaded = await _wait_for_download(out_dir, existing_before, timeout=60)
 
         if not downloaded:
+            await _save_diagnostic_screenshot(tab, f"no-download-{app_name}")
             raise RuntimeError("İndirme başlamadı / dosya tespit edilemedi (CDP download).")
 
         size = downloaded.stat().st_size
         if size < 1024:
-            raise RuntimeError(f"İndirilen dosya çok küçük ({size} bayt)")
+            raise RuntimeError(f"Downloaded file too small ({size} bytes)")
 
         print("📦 DONE:", downloaded, f"({size / 1024 / 1024:.2f} MB)")
         return str(downloaded)
 
-    finally:
-        browser.stop()
+    except Exception:
+        await _save_diagnostic_screenshot(tab, f"error-{app_name}")
+        raise
+
+
+def _version_from_href(href: str) -> str | None:
+    """
+    APKMirror release URL'leri her zaman '...-<versiyon-tire-ile>-release/'
+    kalıbını izler. Sayfa metninden (innerText) çıkarmaya çalışmak (badge,
+    reklam vb. karışabildiği için) URL'den çıkarmaktan daha güvenilmez -
+    bu yüzden önce URL'yi deniyoruz.
+    """
+    if not href:
+        return None
+    match = re.search(r"-(\d[\d]*(?:-\d+)+)-release", href)
+    if not match:
+        return None
+
+    parts = match.group(1).split("-")
+    # Bazı URL'lerde versiyon numarasına ekstra uzun bir versionCode
+    # (ör. 932364120) yapışık geliyor - bu versiyonun parçası değil.
+    # Android versionCode'lar genelde 7+ haneli olur.
+    if len(parts) > 1 and len(parts[-1]) > 6:
+        parts = parts[:-1]
+
+    return ".".join(parts)
 
 
 async def get_latest_listing(app_name: str) -> dict | None:
@@ -261,10 +396,10 @@ async def get_latest_listing(app_name: str) -> dict | None:
     if not app_config:
         raise RuntimeError(f'Unknown appName "{app_name}" - not found in APP_SITES')
 
-    browser = await _start_browser()
+    browser = await get_browser()
+    tab = browser.main_tab
 
     try:
-        tab = browser.main_tab
         listing_url = f"https://www.apkmirror.com/apk/{app_config['org']}/{app_config['slug']}/"
         print("🌐 LISTING:", listing_url)
 
@@ -280,22 +415,26 @@ async def get_latest_listing(app_name: str) -> dict | None:
 
         result = None
         for attempt in range(3):
-            await tab.get(listing_url)
-            await tab.sleep(1.5 + attempt)
+            await _goto(tab, listing_url, wait=1.5 + attempt, label="app-listing")
             result = await tab.evaluate(js)
             if result:
                 break
             print(f"⚠️ Liste sayfasında link bulunamadı, tekrar deneniyor ({attempt + 1}/3)...")
 
         if not result:
+            await _save_diagnostic_screenshot(tab, f"no-listing-{app_name}")
             return None
 
         text = result.get("text", "") if isinstance(result, dict) else ""
         href = result.get("href") if isinstance(result, dict) else None
 
-        match = re.search(r"\d+(?:\.\d+)+", text)
+        version = _version_from_href(href)
+        if not version:
+            match = re.search(r"\d+(?:\.\d+)+", text)
+            version = match.group(0) if match else None
 
-        return {"version": match.group(0) if match else None, "href": href}
+        return {"version": version, "href": href}
 
-    finally:
-        browser.stop()
+    except Exception:
+        await _save_diagnostic_screenshot(tab, f"error-listing-{app_name}")
+        raise
