@@ -43,6 +43,27 @@ jobs:
             sudo apt-get install -y google-chrome-stable
           fi
 
+      - name: Install apksigner (Android SDK build-tools)
+        run: |
+          APKSIGNER_BIN=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -maxdepth 2 -name apksigner 2>/dev/null | sort -V | tail -1)
+
+          if [ -z "$APKSIGNER_BIN" ]; then
+            echo "⬇️ apksigner bulunamadı, Android command-line tools indiriliyor..."
+            SDK_ROOT="$HOME/android-sdk"
+            mkdir -p "$SDK_ROOT/cmdline-tools"
+            curl -sL https://dl.google.com/android/repository/commandlinetools-linux-latest.zip -o cmdline-tools.zip
+            unzip -q cmdline-tools.zip -d "$SDK_ROOT/cmdline-tools"
+            mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+            yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses > /dev/null 2>&1 || true
+            "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "build-tools;35.0.0"
+            APKSIGNER_BIN="$SDK_ROOT/build-tools/35.0.0/apksigner"
+          else
+            echo "✅ apksigner zaten kurulu: $APKSIGNER_BIN"
+          fi
+
+          echo "APKSIGNER_PATH=$APKSIGNER_BIN" >> "$GITHUB_ENV"
+          "$APKSIGNER_BIN" --version
+
       - name: Install & freeze Python dependencies
         run: |
           python -m pip install --upgrade pip
@@ -102,6 +123,28 @@ jobs:
           KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KS_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Upload diagnostic screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-${{ github.run_id }}
+          path: diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Commit updated known_signatures.json
+        if: always()
+        run: |
+          if ! git diff --quiet -- known_signatures.json; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add known_signatures.json
+            git commit -m "chore: pin newly seen APK signature(s) [skip ci]"
+            git push
+          else
+            echo "known_signatures.json değişmedi, commit atlanıyor."
+          fi
 
       - name: Yayın Onay Belgesini (Provenance) Üret
         if: ${{ hashFiles('*.apk') != '' }}
