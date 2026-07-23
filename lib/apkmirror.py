@@ -319,9 +319,14 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
         list_url = await _resolve_list_url(tab, app_config, version)
         print("🌐 LIST:", list_url)
 
-        await _goto(tab, list_url, wait=1.2, label="list-page")
+        variant_url = None
+        for attempt in range(3):
+            await _goto(tab, list_url, wait=1.2 + attempt * 0.8, label="list-page")
+            variant_url = await _extract_variant_url(tab, force_build, app_name)
+            if variant_url:
+                break
+            print(f"⚠️ Sayfada eşleşen satır bulunamadı, tekrar deneniyor ({attempt + 1}/3)...")
 
-        variant_url = await _extract_variant_url(tab, force_build, app_name)
         if not variant_url:
             await _save_diagnostic_screenshot(tab, f"no-variant-{app_name}")
             raise RuntimeError("No matching variant found on APKMirror")
@@ -405,35 +410,43 @@ async def get_latest_listing(app_name: str) -> dict | None:
 
         js = """
         (() => {
-            const link = document.querySelector("a[href*='-release/']");
-            if (!link) return null;
-            const row = link.closest('div, li, tr') || link.parentElement;
-            const text = row ? row.innerText : link.innerText;
-            return { href: link.href, text: text || '' };
+            const links = Array.from(document.querySelectorAll("a[href*='-release/']")).slice(0, 15);
+            return links.map(link => {
+                const row = link.closest('div, li, tr') || link.parentElement;
+                const text = row ? row.innerText : link.innerText;
+                return { href: link.href, text: text || '' };
+            });
         })()
         """
 
-        result = None
+        candidates = []
         for attempt in range(3):
             await _goto(tab, listing_url, wait=1.5 + attempt, label="app-listing")
-            result = await tab.evaluate(js)
-            if result:
+            candidates = await tab.evaluate(js)
+            if candidates:
                 break
             print(f"⚠️ Liste sayfasında link bulunamadı, tekrar deneniyor ({attempt + 1}/3)...")
 
-        if not result:
+        if not candidates:
             await _save_diagnostic_screenshot(tab, f"no-listing-{app_name}")
             return None
 
-        text = result.get("text", "") if isinstance(result, dict) else ""
-        href = result.get("href") if isinstance(result, dict) else None
+        # İlk bulunan link her zaman doğru olmayabilir (reklam, ilgili uygulama
+        # linki vb. karışabilir) - versiyon çıkarılabilen İLK adayı kullan.
+        for item in candidates:
+            href = item.get("href") if isinstance(item, dict) else None
+            text = item.get("text", "") if isinstance(item, dict) else ""
 
-        version = _version_from_href(href)
-        if not version:
-            match = re.search(r"\d+(?:\.\d+)+", text)
-            version = match.group(0) if match else None
+            version = _version_from_href(href)
+            if not version:
+                match = re.search(r"\d+(?:\.\d+)+", text)
+                version = match.group(0) if match else None
 
-        return {"version": version, "href": href}
+            if version:
+                return {"version": version, "href": href}
+
+        await _save_diagnostic_screenshot(tab, f"no-version-{app_name}")
+        return None
 
     except Exception:
         await _save_diagnostic_screenshot(tab, f"error-listing-{app_name}")
