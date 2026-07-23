@@ -23,11 +23,17 @@ DISPLAY_NAMES = {
     "speedtest": "Speedtest",
     "solid-explorer": "Solid Explorer",
     "brave": "Brave",
+    "proton-vpn": "Proton VPN",
+    "tiktok": "TikTok",
+    "warp": "1.1.1.1",
+    "inshot": "InShot",
+    "google-photos": "Google Photos",
 }
 
 APKMIRROR_APPS = [
     "youtube", "youtube-music", "reddit", "twitter",
     "solid-explorer", "gboard", "brave",
+    "proton-vpn", "tiktok", "warp", "inshot", "google-photos",
 ]
 
 APPS_CONFIG = {
@@ -78,11 +84,32 @@ APPS_CONFIG = {
         "pkg": "com.brave.browser", "name": "brave", "patch_source": "bufferk",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/brave/FB542B", "exclude": [],
     },
+    "proton-vpn": {
+        "pkg": "ch.protonvpn.android", "name": "proton-vpn", "patch_source": "hoodles",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/protonvpn", "exclude": [],
+    },
+    "tiktok": {
+        "pkg": "com.zhiliaoapp.musically", "name": "tiktok", "patch_source": "tiktok",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/tiktok", "exclude": [],
+    },
+    "warp": {
+        "pkg": "com.cloudflare.onedotonedotonedotone", "name": "warp", "patch_source": "rushi",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/1dot1dot1dot1", "exclude": [],
+    },
+    "inshot": {
+        "pkg": "com.camerasideas.instashot", "name": "inshot", "patch_source": "hooman",
+        "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=inshot.com", "exclude": [],
+    },
+    "google-photos": {
+        "pkg": "com.google.android.apps.photos", "name": "google-photos", "patch_source": "rushi",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/googlephotos", "exclude": [],
+    },
 }
 
 PROCESS_ORDER = [
     "youtube", "youtube-music", "reddit", "twitter", "instagram",
     "gboard", "speedtest", "solid-explorer", "brave",
+    "proton-vpn", "tiktok", "warp", "inshot", "google-photos",
 ]
 
 PATCH_SOURCES = {
@@ -91,6 +118,9 @@ PATCH_SOURCES = {
     "adobo": ("jkennethcarino", "adobo", "🥘 Adobo"),
     "rushi": ("rushiranpise", "morphe-patches", "⚡ Rushiranpise"),
     "bufferk": ("bufferk", "morphe-patches", "🟣 Bufferk"),
+    "hoodles": ("hoo-dles", "morphe-patches", "🍃 hoo-dles"),
+    "tiktok": ("icysymmetra", "tiktok-patches-for-morphe", "🎵 TikTok Patches"),
+    "hooman": ("arandomhooman", "hoomans-morphe-patches", "🎬 Hooman's Patches"),
 }
 
 
@@ -229,6 +259,8 @@ async def main():
     except Exception as err:
         print("❌ Fatal error:", err)
         raise SystemExit(1)
+    finally:
+        await apkmirror.close_browser()
 
 
 if __name__ == "__main__":
