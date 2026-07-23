@@ -133,17 +133,17 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
-      - name: Commit updated known_signatures.json
+      - name: Commit updated signature files
         if: always()
         run: |
-          if ! git diff --quiet -- known_signatures.json; then
+          if ! git diff --quiet -- known_signatures.json pending_signatures.json 2>/dev/null; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add known_signatures.json
-            git commit -m "chore: pin newly seen APK signature(s) [skip ci]"
+            git add known_signatures.json pending_signatures.json 2>/dev/null || git add known_signatures.json
+            git commit -m "chore: update signature records (pending review) [skip ci]"
             git push
           else
-            echo "known_signatures.json değişmedi, commit atlanıyor."
+            echo "known_signatures.json / pending_signatures.json değişmedi, commit atlanıyor."
           fi
 
       - name: Yayın Onay Belgesini (Provenance) Üret
