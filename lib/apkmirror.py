@@ -82,8 +82,8 @@ async def get_browser():
     if _shared_browser is not None:
         return _shared_browser
 
-    retries = 4
-    base_delay = 3.0
+    retries = 6
+    base_delay = 4.0
     last_err = None
 
     for attempt in range(retries):
@@ -263,6 +263,7 @@ async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> s
     (() => {{
         const rows = document.querySelectorAll('.table-row');
         let standaloneNodpi = null, standaloneAnyDpi = null, bundleNodpi = null, bundleAnyDpi = null;
+        let looseArchOnly = null;
         const allowedArchs = ['universal', 'evrensel', 'noarch', 'arm64-v8a', 'arm64-v8a + armeabi-v7a', 'arm64-v8a + armeabi'];
         const forceBuild = {json.dumps(force_build)};
         const appName = {json.dumps(app_name)};
@@ -294,10 +295,15 @@ async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> s
                 }} else {{
                     if (dpiText.includes('nodpi')) bundleNodpi = link.href; else bundleAnyDpi = link.href;
                 }}
+            }} else if (isTargetArch && !looseArchOnly && !isBundle) {{
+                // Katı dpi filtresi hiçbir satıra uymadı - mimari doğru ama dpi
+                // etiketi tanımadığımız bir formatta olabilir (ör. "480dpi").
+                // Son çare olarak sadece mimarisi uyan ilk satırı sakla.
+                looseArchOnly = link.href;
             }}
         }}
 
-        return standaloneNodpi || standaloneAnyDpi || bundleNodpi || bundleAnyDpi;
+        return standaloneNodpi || standaloneAnyDpi || bundleNodpi || bundleAnyDpi || looseArchOnly;
     }})()
     """
     return await tab.evaluate(js)
@@ -350,12 +356,12 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
         print("🌐 LIST:", list_url)
 
         variant_url = None
-        for attempt in range(3):
-            await _goto(tab, list_url, wait=1.2 + attempt * 0.8, label="list-page")
+        for attempt in range(4):
+            await _goto(tab, list_url, wait=1.5 + attempt * 1.0, label="list-page")
             variant_url = await _extract_variant_url(tab, force_build, app_name)
             if variant_url:
                 break
-            print(f"⚠️ Sayfada eşleşen satır bulunamadı, tekrar deneniyor ({attempt + 1}/3)...")
+            print(f"⚠️ Sayfada eşleşen satır bulunamadı, tekrar deneniyor ({attempt + 1}/4)...")
 
         if not variant_url:
             await _save_diagnostic_screenshot(tab, f"no-variant-{app_name}")
@@ -409,6 +415,14 @@ def _version_from_href(href: str) -> str | None:
     kalıbını izler. Sayfa metninden (innerText) çıkarmaya çalışmak (badge,
     reklam vb. karışabildiği için) URL'den çıkarmaktan daha güvenilmez -
     bu yüzden önce URL'yi deniyoruz.
+
+    NOT: Daha önce burada "son parça 6+ haneliyse versionCode'dur, at" gibi
+    bir sadeleştirme vardı - bu YANLIŞTI. Google'ın kendi uygulamaları
+    (Gboard, Google Photos) o uzun sayıyı GERÇEKTEN sürüm dizisinin bir
+    parçası olarak kullanıyor (ör. Gboard "17.7.7.932364120",
+    Google Photos "7.85.0.952162352") ve APKMirror'ın kendi URL'leri de
+    tam olarak bunu birebir içeriyor. Bu yüzden URL'de bulunan tüm
+    basamaklar OLDUĞU GİBİ döndürülüyor.
     """
     if not href:
         return None
@@ -416,14 +430,7 @@ def _version_from_href(href: str) -> str | None:
     if not match:
         return None
 
-    parts = match.group(1).split("-")
-    # Bazı URL'lerde versiyon numarasına ekstra uzun bir versionCode
-    # (ör. 932364120) yapışık geliyor - bu versiyonun parçası değil.
-    # Android versionCode'lar genelde 7+ haneli olur.
-    if len(parts) > 1 and len(parts[-1]) > 6:
-        parts = parts[:-1]
-
-    return ".".join(parts)
+    return match.group(1).replace("-", ".")
 
 
 async def get_latest_listing(app_name: str) -> dict | None:
@@ -450,12 +457,12 @@ async def get_latest_listing(app_name: str) -> dict | None:
         """
 
         candidates = []
-        for attempt in range(3):
-            await _goto(tab, listing_url, wait=1.5 + attempt, label="app-listing")
+        for attempt in range(4):
+            await _goto(tab, listing_url, wait=2.5 + attempt * 1.2, label="app-listing")
             candidates = await tab.evaluate(js)
             if candidates:
                 break
-            print(f"⚠️ Liste sayfasında link bulunamadı, tekrar deneniyor ({attempt + 1}/3)...")
+            print(f"⚠️ Liste sayfasında link bulunamadı, tekrar deneniyor ({attempt + 1}/4)...")
 
         if not candidates:
             await _save_diagnostic_screenshot(tab, f"no-listing-{app_name}")
