@@ -1,5 +1,6 @@
 import asyncio
 import os
+import random
 import subprocess
 import shutil
 from datetime import datetime, timezone
@@ -8,7 +9,7 @@ from pathlib import Path
 from lib.github import download_latest_github_asset
 from lib.versions import extract_youtube_versions, pick_latest_version
 from lib.patcher import patch_apk
-from lib.release import ensure_release, upload_patched_apk, upload_microg_once
+from lib.release import ensure_release, get_release_by_tag, upload_patched_apk, upload_microg_once
 from lib.verify import verify_apk_signature
 from lib import apkmirror
 from lib import githubdl
@@ -229,23 +230,34 @@ async def main():
             except Exception as err:
                 print(f"❌ {app_key.upper()} failed, skipping: {err}")
 
+            if APPS_CONFIG[app_key]["name"] in APKMIRROR_APPS and app_key != apps_to_process[-1]:
+                delay = random.uniform(6.0, 14.0)
+                print(f"⏸️ Sonraki uygulamaya geçmeden önce {delay:.0f}s bekleniyor (APKMirror istek hızını azaltmak için)...")
+                await asyncio.sleep(delay)
+
         if patched_apks_list:
-            date = datetime.now(timezone.utc)
-            tag_date_str = date.strftime("%Y-%m-%dT%H-%M-%S")
-            release_tag = f"build-{tag_date_str}"
-            release_name = f"Patched APKs · {date.day} {date.strftime('%B %Y')}"
+            release_tag_env = os.environ.get("RELEASE_TAG")
 
-            body = "### 📦 Latest Patched APKs\n\n"
-            for apk in patched_apks_list:
-                body += f'* <img src="{apk["icon"]}" width="16" height="16"> **{apk["display_name"]}**\n'
-            body += "\n---\n\n"
+            if release_tag_env:
+                print(f"\n📢 Ortak release kullanılıyor (matrix job): {release_tag_env}")
+                release = await get_release_by_tag(release_tag_env)
+            else:
+                date = datetime.now(timezone.utc)
+                tag_date_str = date.strftime("%Y-%m-%dT%H-%M-%S")
+                release_tag = f"build-{tag_date_str}"
+                release_name = f"Patched APKs · {date.day} {date.strftime('%B %Y')}"
 
-            for key in PATCH_SOURCES:
-                if needed[key] and notes[key]:
-                    body += notes[key]
+                body = "### 📦 Latest Patched APKs\n\n"
+                for apk in patched_apks_list:
+                    body += f'* <img src="{apk["icon"]}" width="16" height="16"> **{apk["display_name"]}**\n'
+                body += "\n---\n\n"
 
-            print(f"\n📢 Creating New Release: {release_tag}")
-            release = await ensure_release(release_tag, release_name, body)
+                for key in PATCH_SOURCES:
+                    if needed[key] and notes[key]:
+                        body += notes[key]
+
+                print(f"\n📢 Creating New Release: {release_tag}")
+                release = await ensure_release(release_tag, release_name, body)
 
             microg_uploaded = False
             for apk in patched_apks_list:
