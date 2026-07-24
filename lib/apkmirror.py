@@ -62,6 +62,8 @@ _CHALLENGE_MARKERS = [
 
 _shared_browser = None
 _downloads_ready = False
+_challenge_hits = 0
+_cooldown_until = 0.0
 
 
 async def _jitter_sleep(base: float, spread: float = 0.6) -> None:
@@ -150,23 +152,51 @@ async def _save_diagnostic_screenshot(tab, label: str):
         print(f"⚠️ Ekran görüntüsü alınamadı: {e}")
 
 
+async def _apply_global_cooldown():
+    """
+    Bir challenge görüldüğünde bu sadece o istek için değil, run'ın geri
+    kalanı için de geçerli bir "yavaşla" sinyali - APKMirror/Cloudflare
+    kümülatif istek hızına göre giderek sertleşen bir koruma uyguluyor
+    gibi görünüyor (tek bir URL'e özel değil).
+    """
+    now = time.monotonic()
+    if now < _cooldown_until:
+        remaining = _cooldown_until - now
+        print(f"🧊 Genel soğuma süresi aktif, {remaining:.0f}s bekleniyor...")
+        await asyncio.sleep(remaining)
+
+
 async def _goto(tab, url: str, wait: float = 1.2, challenge_retries: int = 3, label: str = "sayfa"):
     """
     Navigasyon + Cloudflare challenge tespiti. Sayfa "Just a moment..." gibi
     bir doğrulama ekranıyla karşılaşırsa, normal bir hata gibi davranmak
-    yerine biraz bekleyip tekrar dener (challenge genelde birkaç saniye
-    içinde kendiliğinden geçer).
+    yerine biraz bekleyip tekrar dener. Ayrıca her challenge görüldüğünde
+    global bir soğuma süresi başlatılır (run boyunca birikimli - bkz.
+    _apply_global_cooldown).
     """
+    global _challenge_hits, _cooldown_until
+
+    await _apply_global_cooldown()
+
     for attempt in range(challenge_retries + 1):
         await tab.get(url)
         await _jitter_sleep(wait)
 
         if await _is_challenge_page(tab):
+            _challenge_hits += 1
+            # Her yeni challenge'da hem bu deneme için hem de sonraki TÜM
+            # isteklerde soğuma süresi katlanarak artıyor (15s, 30s, 60s...).
+            cooldown_len = min(15.0 * (2 ** (_challenge_hits - 1)), 120.0)
+            _cooldown_until = time.monotonic() + cooldown_len
+
             if attempt < challenge_retries:
-                backoff = 3.0 * (attempt + 1)
-                print(f"🛡️ Cloudflare doğrulama ekranı tespit edildi ({label}), {backoff:.0f}s bekleyip tekrar denenecek...")
-                await _jitter_sleep(backoff, spread=1.5)
+                print(
+                    f"🛡️ Cloudflare doğrulama ekranı tespit edildi ({label}), "
+                    f"{cooldown_len:.0f}s soğuyup tekrar denenecek (toplam {_challenge_hits}. karşılaşma)..."
+                )
+                await asyncio.sleep(cooldown_len)
                 continue
+
             print(f"⚠️ Cloudflare doğrulama ekranı hâlâ geçmedi ({label}), yine de devam ediliyor...")
             await _save_diagnostic_screenshot(tab, f"cloudflare-{label}")
 
