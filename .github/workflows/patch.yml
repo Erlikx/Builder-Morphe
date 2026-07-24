@@ -18,6 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
+          ref: main
           persist-credentials: true
 
       - name: Setup Python
@@ -86,6 +87,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
+          ref: main
           persist-credentials: true
 
       - name: Setup Python
