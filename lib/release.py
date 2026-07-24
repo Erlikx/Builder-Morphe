@@ -95,6 +95,20 @@ async def upload_with_replace(release: dict, file_path: str):
     return await _upload(release["upload_url"], file_path)
 
 
+async def get_release_by_tag(tag: str) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.get(
+            f"https://api.github.com/repos/{REPO}/releases/tags/{tag}",
+            headers=HEADERS,
+        )
+        data = res.json()
+
+    if "id" not in data:
+        raise RuntimeError(f"Release '{tag}' bulunamadı: {data}")
+
+    return data
+
+
 async def ensure_release(tag: str, release_name: str, release_body: str) -> dict:
     _assert_configured()
     return await create_new_release(tag, release_name, release_body)
