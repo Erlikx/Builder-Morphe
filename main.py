@@ -65,7 +65,7 @@ APPS_CONFIG = {
     "gboard": {
         "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "adobo",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/google/4285F4",
-        "exclude": [],
+        "exclude": [], "force_version": "17.7.7.932364120",
         "enable": [
             "Enable voice typing in incognito", "Enable key shape selection",
             "Enable clipboard in incognito", "Enable access points menu redesign",
@@ -104,6 +104,7 @@ APPS_CONFIG = {
     "google-photos": {
         "pkg": "com.google.android.apps.photos", "name": "google-photos", "patch_source": "rushi",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/googlephotos", "exclude": [],
+        "force_version": "7.85.0.952162352",
     },
 }
 
