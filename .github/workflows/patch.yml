@@ -4,9 +4,56 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
+
+    permissions:
+      contents: write
+
+    outputs:
+      release_tag: ${{ steps.release.outputs.tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Install & freeze Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade -r requirements.txt
+          pip freeze > requirements-lock.txt
+
+      - name: Commit updated lockfile
+        run: |
+          if [ -n "$(git status --porcelain -- requirements-lock.txt)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add requirements-lock.txt
+            git commit -m "chore: update requirements-lock.txt [skip ci]"
+            git push
+          else
+            echo "requirements-lock.txt değişmedi, commit atlanıyor."
+          fi
+
+      - name: Create shared release
+        id: release
+        run: python create_release.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+  patch:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
 
     permissions:
       contents: write
@@ -14,6 +61,26 @@ jobs:
       id-token: write
       attestations: write
       artifact-metadata: write
+
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        app:
+          - youtube
+          - youtube-music
+          - reddit
+          - twitter
+          - instagram
+          - gboard
+          - speedtest
+          - solid-explorer
+          - brave
+          - proton-vpn
+          - tiktok
+          - warp
+          - inshot
+          - google-photos
 
     steps:
       - name: Checkout
@@ -64,11 +131,10 @@ jobs:
           echo "APKSIGNER_PATH=$APKSIGNER_BIN" >> "$GITHUB_ENV"
           "$APKSIGNER_BIN" --version
 
-      - name: Install & freeze Python dependencies
+      - name: Install Python dependencies (lockfile'dan, sabit sürümler)
         run: |
           python -m pip install --upgrade pip
-          pip install --upgrade -r requirements.txt
-          pip freeze > requirements-lock.txt
+          pip install -r requirements-lock.txt
 
       - name: Fix nodriver non-UTF-8 source bug (upstream)
         run: |
@@ -96,18 +162,6 @@ jobs:
               print("nodriver kaynak dosyalari zaten gecerli UTF-8, duzeltme gerekmedi.")
           PYEOF
 
-      - name: Commit updated lockfile
-        run: |
-          if ! git diff --quiet -- requirements-lock.txt; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add requirements-lock.txt
-            git commit -m "chore: update requirements-lock.txt [skip ci]"
-            git push
-          else
-            echo "requirements-lock.txt değişmedi, commit atlanıyor."
-          fi
-
       - name: Setup Keystore
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > Panemi.keystore
@@ -118,7 +172,8 @@ jobs:
           PYTHONUNBUFFERED: "1"
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
-          TARGET_APP: "all"
+          TARGET_APP: ${{ matrix.app }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
           KS_PATH: "Panemi.keystore"
           KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KS_ALIAS: ${{ secrets.KEY_ALIAS }}
@@ -128,23 +183,14 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: diagnostics-${{ github.run_id }}
+          name: diagnostics-${{ matrix.app }}-${{ github.run_id }}
           path: diagnostics/
           if-no-files-found: ignore
           retention-days: 7
 
       - name: Commit updated signature files
         if: always()
-        run: |
-          if ! git diff --quiet -- known_signatures.json pending_signatures.json 2>/dev/null; then
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add known_signatures.json pending_signatures.json 2>/dev/null || git add known_signatures.json
-            git commit -m "chore: update signature records (pending review) [skip ci]"
-            git push
-          else
-            echo "known_signatures.json / pending_signatures.json değişmedi, commit atlanıyor."
-          fi
+        run: python commit_signature.py "${{ matrix.app }}"
 
       - name: Yayın Onay Belgesini (Provenance) Üret
         if: ${{ hashFiles('*.apk') != '' }}
@@ -154,6 +200,11 @@ jobs:
             *.apk
             !microg*.apk
 
+  cleanup:
+    needs: patch
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
       - name: Delete old workflow runs
         uses: Mattraks/delete-workflow-runs@b3018382ca039b53d238908238bd35d1fb14f8ee # v2.1.0
         with:
