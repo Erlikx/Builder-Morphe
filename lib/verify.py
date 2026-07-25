@@ -96,20 +96,28 @@ def _resolve_verifiable_apk(path: str) -> tuple[str, str | None]:
     aynı imza sertifikasını taşımak zorundadır - yani base.apk'yı
     doğrulamak, bundle'ın tamamını doğrulamakla eşdeğerdir.
 
+    NOT: Bundle olup olmadığına dosya UZANTISINA göre değil, gerçek ZIP
+    içeriğine göre karar veriyoruz - bazı kaynaklar (ör. APKMirror'ın
+    bundle indirmeleri) dosyayı yanıltıcı şekilde ".apk" uzantısıyla
+    verebiliyor. Gerçek, tekil bir APK'nın kökünde AndroidManifest.xml
+    doğrudan bulunur; bundle'da ise base.apk gibi alt dosyalar içinde olur.
+
     Zaten tekil bir .apk ise olduğu gibi döner (temp_dir=None).
     Bundle ise base.apk'yı geçici bir klasöre çıkarır ve o klasörün
     yolunu (çağıran taraf işini bitirince silsin diye) döner.
     """
-    if path.lower().endswith(".apk"):
-        return path, None
-
     if not zipfile.is_zipfile(path):
-        raise Exception(
-            f"{Path(path).name} ne tekil bir .apk ne de ZIP tabanlı bir bundle (.apkm/.xapk) - doğrulanamıyor."
-        )
+        if path.lower().endswith(".apk"):
+            return path, None
+        raise Exception(f"{Path(path).name} ne tekil bir .apk ne de ZIP tabanlı bir bundle (.apkm/.xapk) - doğrulanamıyor.")
 
     with zipfile.ZipFile(path) as zf:
         names = zf.namelist()
+
+        if "AndroidManifest.xml" in names:
+            # Gerçek, tekil bir APK (ZIP formatının kendisi zaten budur)
+            return path, None
+
         candidates = [n for n in names if n.split("/")[-1] == "base.apk"]
         if not candidates:
             candidates = [n for n in names if n.endswith(".apk")]
