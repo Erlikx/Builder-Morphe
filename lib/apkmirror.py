@@ -264,11 +264,16 @@ async def _dump_variant_rows_for_debug(tab):
     gerçekte kaç .table-row var ve her birinin mimari/dpi/etiket metni ne -
     ekran görüntüsü yorumlamaya çalışmak yerine ham veriyi doğrudan log'a
     basıyoruz.
+
+    NOT: JS objesini doğrudan döndürmek yerine JSON.stringify ile string
+    olarak alıp Python'da json.loads ediyoruz - nodriver'ın obje/array
+    serileştirmesi beklenmedik şekillerde dönebiliyor (ör. dict yerine
+    list), bu yüzden ham JSON metni en güvenilir yol.
     """
     js = """
     (() => {
         const rows = document.querySelectorAll('.table-row');
-        return {
+        return JSON.stringify({
             rowCount: rows.length,
             sample: Array.from(rows).slice(0, 20).map(row => {
                 const cells = row.querySelectorAll('.table-cell');
@@ -279,11 +284,12 @@ async def _dump_variant_rows_for_debug(tab):
                     dpi: cells[3] ? cells[3].innerText.trim() : null,
                 };
             }),
-        };
+        });
     })()
     """
     try:
-        info = await tab.evaluate(js)
+        raw = await tab.evaluate(js)
+        info = json.loads(raw) if isinstance(raw, str) else raw
         print(f"🔬 Teşhis: sayfada {info.get('rowCount', '?')} adet .table-row bulundu.")
         for i, row in enumerate(info.get("sample", [])):
             print(f"   [{i}] cells={row.get('cellCount')} name={row.get('name')!r} arch={row.get('arch')!r} dpi={row.get('dpi')!r}")
@@ -487,18 +493,23 @@ async def get_latest_listing(app_name: str) -> dict | None:
         js = """
         (() => {
             const links = Array.from(document.querySelectorAll("a[href*='-release/']")).slice(0, 15);
-            return links.map(link => {
+            return JSON.stringify(links.map(link => {
                 const row = link.closest('div, li, tr') || link.parentElement;
                 const text = row ? row.innerText : link.innerText;
                 return { href: link.href, text: text || '' };
-            });
+            }));
         })()
         """
 
         candidates = []
         for attempt in range(4):
             await _goto(tab, listing_url, wait=2.5 + attempt * 1.2, label="app-listing")
-            candidates = await tab.evaluate(js)
+            raw = await tab.evaluate(js)
+            try:
+                candidates = json.loads(raw) if isinstance(raw, str) else (raw or [])
+            except Exception as e:
+                print(f"⚠️ Liste verisi JSON olarak ayrıştırılamadı: {e}")
+                candidates = []
             if candidates:
                 break
             print(f"⚠️ Liste sayfasında link bulunamadı, tekrar deneniyor ({attempt + 1}/4)...")
