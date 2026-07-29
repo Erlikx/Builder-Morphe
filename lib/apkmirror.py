@@ -204,16 +204,35 @@ async def _goto(tab, url: str, wait: float = 1.2, challenge_retries: int = 3, la
 
 
 async def _row_count(tab) -> int:
+    """
+    .table-row sitede HER YERDE kullanılan genel bir class - ana sayfadaki
+    "son güncellenenler" widget'ı, 404 sayfası bile bundan birkaç tane
+    içeriyor. Bu yüzden sadece GERÇEK varyant tablosunun (.variants-table)
+    İÇİNDEKİ satırları sayıyoruz, sayfanın tamamını değil.
+    """
     try:
-        result = await tab.evaluate("document.querySelectorAll('.table-row').length")
+        result = await tab.evaluate("document.querySelectorAll('.variants-table .table-row').length")
         return int(result or 0)
     except Exception:
         return 0
 
 
+async def _is_404_page(tab) -> bool:
+    try:
+        content = await tab.evaluate("document.title + ' ' + (document.body.innerText || '').slice(0, 300)")
+    except Exception:
+        return False
+    if not content:
+        return False
+    lowered = content.lower()
+    return "404" in lowered and ("whoops" in lowered or "could not be found" in lowered or "not be found" in lowered)
+
+
 async def _page_exists(tab, url: str) -> bool:
     try:
         await _goto(tab, url, wait=1.0, label="direct-try")
+        if await _is_404_page(tab):
+            return False
         return (await _row_count(tab)) > 0
     except Exception:
         return False
@@ -273,8 +292,11 @@ async def _dump_variant_rows_for_debug(tab):
     js = """
     (() => {
         const rows = document.querySelectorAll('.table-row');
+        const scopedRows = document.querySelectorAll('.variants-table .table-row');
         return JSON.stringify({
             rowCount: rows.length,
+            scopedRowCount: scopedRows.length,
+            is404: /404/.test(document.title) || /could not be found/i.test(document.body.innerText || ''),
             sample: Array.from(rows).slice(0, 20).map(row => {
                 const cells = row.querySelectorAll('.table-cell');
                 return {
@@ -290,7 +312,11 @@ async def _dump_variant_rows_for_debug(tab):
     try:
         raw = await tab.evaluate(js)
         info = json.loads(raw) if isinstance(raw, str) else raw
-        print(f"🔬 Teşhis: sayfada {info.get('rowCount', '?')} adet .table-row bulundu.")
+        print(
+            f"🔬 Teşhis: sayfada {info.get('rowCount', '?')} adet .table-row "
+            f"(bunlardan {info.get('scopedRowCount', '?')} tanesi gerçek .variants-table içinde), "
+            f"404 mü: {info.get('is404', '?')}"
+        )
         for i, row in enumerate(info.get("sample", [])):
             print(f"   [{i}] cells={row.get('cellCount')} name={row.get('name')!r} arch={row.get('arch')!r} dpi={row.get('dpi')!r}")
     except Exception as e:
@@ -300,8 +326,7 @@ async def _dump_variant_rows_for_debug(tab):
 async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> str | None:
     js = f"""
     (() => {{
-        const rows = document.querySelectorAll('.table-row');
-        // Öncelik sırasına göre adaylar - en iyisi index 0.
+        const rows = document.querySelectorAll('.variants-table .table-row');
         // standalone tercih edilir, ama bazı uygulamalar (ör. Google Photos)
         // belirli sürümlerde SADECE bundle/XAPK olarak dağıtılıyor - o yüzden
         // bundle da (dpi ne olursa olsun) son çare olarak kabul ediliyor.
