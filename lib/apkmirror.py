@@ -18,7 +18,6 @@ APP_SITES = {
     "instagram": {"org": "instagram", "slug": "instagram"},
     "gboard": {"org": "google-inc", "slug": "gboard", "release_slug": "gboard-the-google-keyboard"},
     "speedtest": {"org": "ookla", "slug": "speedtest"},
-    "solid-explorer": {"org": "neatbytes", "slug": "solid-explorer-file-manager"},
     "brave": {"org": "brave-software", "slug": "brave-browser", "release_slug": "brave-private-web-browser-vpn"},
     "proton-vpn": {
         "org": "proton-technologies-ag",
