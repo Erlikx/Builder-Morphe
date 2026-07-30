@@ -22,7 +22,6 @@ DISPLAY_NAMES = {
     "instagram": "Instagram",
     "gboard": "Gboard",
     "speedtest": "Speedtest",
-    "solid-explorer": "Solid Explorer",
     "brave": "Brave",
     "proton-vpn": "Proton VPN",
     "tiktok": "TikTok",
@@ -33,7 +32,7 @@ DISPLAY_NAMES = {
 
 APKMIRROR_APPS = [
     "youtube", "youtube-music", "reddit", "twitter",
-    "solid-explorer", "gboard", "brave",
+    "gboard", "brave",
     "proton-vpn", "tiktok", "warp", "inshot", "google-photos",
 ]
 
@@ -77,10 +76,6 @@ APPS_CONFIG = {
         "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=speedtest.net",
         "exclude": [], "force_version": "7.0.7",
     },
-    "solid-explorer": {
-        "pkg": "pl.solidexplorer2", "name": "solid-explorer", "patch_source": "rushi",
-        "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=solidexplorer.com", "exclude": [],
-    },
     "brave": {
         "pkg": "com.brave.browser", "name": "brave", "patch_source": "bufferk",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/brave/FB542B", "exclude": [],
@@ -110,7 +105,7 @@ APPS_CONFIG = {
 
 PROCESS_ORDER = [
     "youtube", "youtube-music", "reddit", "twitter", "instagram",
-    "gboard", "speedtest", "solid-explorer", "brave",
+    "gboard", "speedtest", "brave",
     "proton-vpn", "tiktok", "warp", "inshot", "google-photos",
 ]
 
@@ -223,13 +218,18 @@ async def main():
 
         patched_apks_list = []
 
+        failed_apps = []
+
         for app_key in apps_to_process:
             try:
                 result = await process_app(app_key, desktop, patches_pool[APPS_CONFIG[app_key]["patch_source"]])
                 if result:
                     patched_apks_list.append(result)
+                else:
+                    failed_apps.append(app_key)
             except Exception as err:
                 print(f"❌ {app_key.upper()} failed, skipping: {err}")
+                failed_apps.append(app_key)
 
             if APPS_CONFIG[app_key]["name"] in APKMIRROR_APPS and app_key != apps_to_process[-1]:
                 delay = random.uniform(6.0, 14.0)
@@ -269,6 +269,12 @@ async def main():
 
             print("\n🎉 All apps successfully published under one release!")
 
+        if failed_apps:
+            print(f"\n❌ Başarısız olan uygulama(lar): {', '.join(failed_apps)}")
+            raise SystemExit(1)
+
+    except SystemExit:
+        raise
     except Exception as err:
         print("❌ Fatal error:", err)
         raise SystemExit(1)
