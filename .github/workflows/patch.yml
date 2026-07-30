@@ -75,7 +75,6 @@ jobs:
           - instagram
           - gboard
           - speedtest
-          - solid-explorer
           - brave
           - proton-vpn
           - tiktok
