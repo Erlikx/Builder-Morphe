@@ -192,6 +192,7 @@ async def main():
     try:
         desktop_obj = await download_latest_github_asset(
             owner="MorpheApp", repo="morphe-desktop",
+            prerelease=True,
             match=lambda n: "desktop" in n and n.endswith(".jar"),
         )
         desktop = desktop_obj["name"]
