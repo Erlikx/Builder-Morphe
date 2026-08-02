@@ -1,7 +1,6 @@
 import os
 import re
 import subprocess
-import sys
 from pathlib import Path
 
 
@@ -13,7 +12,7 @@ def patch_apk(
     enable: list[str] | None = None,
     arch: str = "arm64-v8a",
 ) -> str:
-    print(f"\n🛠️ Patching APK & Stripping unused architectures ({arch} only)...\n")
+    print(f"\nPatching APK & stripping unused architectures ({arch} only)...\n")
 
     ks_path = os.environ.get("KS_PATH")
     ks_password = os.environ.get("KS_PASSWORD")
@@ -26,7 +25,7 @@ def patch_apk(
         cmd += ["--striplibs", arch]
 
     if ks_path and Path(ks_path).exists() and ks_password and ks_alias and key_password:
-        print("🔑 Custom keystore detected! Signing with your private key...")
+        print("Custom keystore detected! Signing with your private key...")
         cmd += [
             "--keystore", ks_path,
             "--keystore-password", ks_password,
@@ -34,7 +33,7 @@ def patch_apk(
             "--keystore-entry-password", key_password,
         ]
     else:
-        print("⚠️ Custom keystore credentials missing or file not found. Falling back to default Morphe testkey.")
+        print("Custom keystore credentials missing or file not found. Falling back to default Morphe testkey.")
 
     for p in (exclude or []):
         cmd += ["--disable", p]
@@ -44,12 +43,8 @@ def patch_apk(
 
     cmd.append(apk)
 
-    print(f"🖥️ EXECUTING COMMAND: {' '.join(cmd)}")
+    print(f"EXECUTING COMMAND: {' '.join(cmd)}")
 
-    # ÖNEMLİ: subprocess.run(capture_output=True) TÜM çıktıyı süreç bitene
-    # kadar arabelleğe alır, ancak sonunda tek seferde döner - bu yüzden
-    # uzun süren/donmuş bir Java sürecinde log ekranda "hiçbir şey olmuyormuş"
-    # gibi görünür. Popen ile satır satır okuyup ANINDA basıyoruz.
     process = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -67,7 +62,7 @@ def patch_apk(
     output = "".join(output_lines)
 
     if "Applying 0 patches" in output:
-        raise RuntimeError("Applying 0 patches. Uyumlu yama bulunamadı veya sürüm desteklenmiyor.")
+        raise RuntimeError("Applying 0 patches. No compatible patch found or version not supported.")
 
     if process.returncode != 0:
         raise RuntimeError(f"Patch failed (exit {process.returncode}):\n{output}")
@@ -81,7 +76,7 @@ def patch_apk(
     if not Path(patched_apk).exists():
         raise RuntimeError(f"Patched APK does not exist:\n{patched_apk}")
 
-    print("\n✅ Patch done")
-    print("📦 Output:", patched_apk)
+    print("\nPatch done")
+    print("Output:", patched_apk)
 
     return patched_apk
