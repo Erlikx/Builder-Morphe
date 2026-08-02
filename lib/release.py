@@ -23,7 +23,7 @@ def _assert_configured():
 
 
 async def create_new_release(tag: str, release_name: str, release_body: str = "") -> dict:
-    print("🆕 Creating new release:", tag)
+    print("Creating new release:", tag)
 
     async with httpx.AsyncClient(timeout=30) as client:
         res = await client.post(
@@ -44,6 +44,72 @@ async def create_new_release(tag: str, release_name: str, release_body: str = ""
         raise RuntimeError(f"Failed to create release: {data}")
 
     return data
+
+
+async def get_release_by_tag(tag: str) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.get(
+            f"https://api.github.com/repos/{REPO}/releases/tags/{tag}",
+            headers=HEADERS,
+        )
+        data = res.json()
+
+    if "id" not in data:
+        raise RuntimeError(f"Release '{tag}' not found: {data}")
+
+    return data
+
+
+async def list_releases() -> list[dict]:
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.get(
+            f"https://api.github.com/repos/{REPO}/releases",
+            headers=HEADERS,
+            params={"per_page": 100},
+        )
+        data = res.json()
+
+    if not isinstance(data, list):
+        raise RuntimeError(f"Failed to list releases: {data}")
+
+    return data
+
+
+async def delete_release(release_id: int) -> None:
+    async with httpx.AsyncClient(timeout=30) as client:
+        await client.delete(
+            f"https://api.github.com/repos/{REPO}/releases/{release_id}",
+            headers=HEADERS,
+        )
+
+
+async def delete_tag(tag: str) -> None:
+    async with httpx.AsyncClient(timeout=30) as client:
+        await client.delete(
+            f"https://api.github.com/repos/{REPO}/git/refs/tags/{tag}",
+            headers=HEADERS,
+        )
+
+
+async def delete_other_releases(keep_release_id: int) -> None:
+    releases = await list_releases()
+
+    for release in releases:
+        if release["id"] == keep_release_id:
+            continue
+        print("Deleting old release:", release.get("tag_name"))
+        await delete_release(release["id"])
+        await delete_tag(release["tag_name"])
+
+
+async def update_release_body(release_id: int, body: str) -> dict:
+    async with httpx.AsyncClient(timeout=30) as client:
+        res = await client.patch(
+            f"https://api.github.com/repos/{REPO}/releases/{release_id}",
+            headers=HEADERS,
+            json={"body": body},
+        )
+        return res.json()
 
 
 async def get_assets(release_id: int) -> list[dict]:
@@ -88,25 +154,11 @@ async def upload_with_replace(release: dict, file_path: str):
     existing = next((a for a in assets if a["name"] == file_name), None)
 
     if existing:
-        print("♻️ Replace:", file_name)
+        print("Replacing existing asset:", file_name)
         await delete_asset(existing["id"])
 
-    print("📤 Upload:", file_name)
+    print("Uploading:", file_name)
     return await _upload(release["upload_url"], file_path)
-
-
-async def get_release_by_tag(tag: str) -> dict:
-    async with httpx.AsyncClient(timeout=30) as client:
-        res = await client.get(
-            f"https://api.github.com/repos/{REPO}/releases/tags/{tag}",
-            headers=HEADERS,
-        )
-        data = res.json()
-
-    if "id" not in data:
-        raise RuntimeError(f"Release '{tag}' bulunamadı: {data}")
-
-    return data
 
 
 async def ensure_release(tag: str, release_name: str, release_body: str) -> dict:
@@ -122,7 +174,7 @@ async def upload_patched_apk(release: dict, apk_path: str):
 async def upload_microg_once(release: dict):
     _assert_configured()
 
-    print("📦 Fetch MicroG...")
+    print("Fetching MicroG...")
     microg_result = await download_latest_github_asset(
         owner="MorpheApp",
         repo="MicroG-RE",
@@ -139,7 +191,7 @@ async def upload_microg_once(release: dict):
     already_uploaded = next((a for a in assets if a["name"] == "MicroG.apk"), None)
 
     if already_uploaded:
-        print("✅ MicroG already up to date on this release, skipping upload")
+        print("MicroG already up to date on this release, skipping upload")
         return
 
     await upload_with_replace(release, str(new_path))
