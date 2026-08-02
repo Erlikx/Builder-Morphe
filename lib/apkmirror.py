@@ -52,13 +52,6 @@ _CHALLENGE_MARKERS = [
     "ddos protection by cloudflare",
 ]
 
-# NOT: nodriver'ın element-handle tabanli select()/select_all() API'si CDP
-# node referanslarini sayfa gecisleri arasinda kaybediyor. Bu yuzden burada
-# SADECE tab.get() (navigasyon) ve tab.evaluate() (JS ile veri cekme/tiklama)
-# kullaniliyor. Dosya indirme de ayri bir httpx istegi yerine CDP'nin kendi
-# indirme mekanizmasi (Browser.setDownloadBehavior) ile, tarayicinin GERCEK
-# oturumu (cookie/Cloudflare dogrulamasi dahil) uzerinden yapiliyor.
-
 _shared_browser = None
 _downloads_ready = False
 _challenge_hits = 0
@@ -66,16 +59,10 @@ _cooldown_until = 0.0
 
 
 async def _jitter_sleep(base: float, spread: float = 0.6) -> None:
-    """Sabit sleep() yerine rastgele (insan benzeri) bekleme."""
     await asyncio.sleep(base + random.uniform(0, spread))
 
 
 async def get_browser():
-    """
-    Tüm run boyunca TEK bir tarayıcı örneği paylaşılır - her uygulama için
-    yeniden başlatmak hem yavaş hem de "art arda yeni tarayıcı açılışı"
-    paterni oluşturarak bot tespiti riskini artırıyordu.
-    """
     global _shared_browser
 
     if _shared_browser is not None:
@@ -101,14 +88,13 @@ async def get_browser():
         except Exception as e:
             last_err = e
             delay = base_delay * (attempt + 1)
-            print(f"⚠️ Tarayıcı başlatılamadı (deneme {attempt + 1}/{retries}): {e} - {delay:.0f}s sonra tekrar denenecek")
+            print(f"Could not start browser (attempt {attempt + 1}/{retries}): {e} - retrying in {delay:.0f}s")
             await asyncio.sleep(delay)
 
     raise last_err
 
 
 async def close_browser():
-    """Run'ın en sonunda main.py tarafından çağrılır."""
     global _shared_browser, _downloads_ready
     if _shared_browser is not None:
         try:
@@ -127,7 +113,7 @@ async def _enable_downloads(tab, out_dir: Path):
         await tab.send(cdp.browser.set_download_behavior(behavior="allow", download_path=str(out_dir)))
         _downloads_ready = True
     except Exception as e:
-        print(f"⚠️ set_download_behavior başarısız (yine de denenecek): {e}")
+        print(f"set_download_behavior failed (will still try to proceed): {e}")
 
 
 async def _is_challenge_page(tab) -> bool:
@@ -146,33 +132,20 @@ async def _save_diagnostic_screenshot(tab, label: str):
         ts = int(time.time())
         path = DIAGNOSTICS_DIR / f"{label}-{ts}.png"
         await tab.save_screenshot(str(path))
-        print(f"📸 Teşhis ekran görüntüsü kaydedildi: {path}")
+        print(f"Diagnostic screenshot saved: {path}")
     except Exception as e:
-        print(f"⚠️ Ekran görüntüsü alınamadı: {e}")
+        print(f"Could not capture screenshot: {e}")
 
 
 async def _apply_global_cooldown():
-    """
-    Bir challenge görüldüğünde bu sadece o istek için değil, run'ın geri
-    kalanı için de geçerli bir "yavaşla" sinyali - APKMirror/Cloudflare
-    kümülatif istek hızına göre giderek sertleşen bir koruma uyguluyor
-    gibi görünüyor (tek bir URL'e özel değil).
-    """
     now = time.monotonic()
     if now < _cooldown_until:
         remaining = _cooldown_until - now
-        print(f"🧊 Genel soğuma süresi aktif, {remaining:.0f}s bekleniyor...")
+        print(f"Global cooldown active, waiting {remaining:.0f}s...")
         await asyncio.sleep(remaining)
 
 
-async def _goto(tab, url: str, wait: float = 1.2, challenge_retries: int = 3, label: str = "sayfa"):
-    """
-    Navigasyon + Cloudflare challenge tespiti. Sayfa "Just a moment..." gibi
-    bir doğrulama ekranıyla karşılaşırsa, normal bir hata gibi davranmak
-    yerine biraz bekleyip tekrar dener. Ayrıca her challenge görüldüğünde
-    global bir soğuma süresi başlatılır (run boyunca birikimli - bkz.
-    _apply_global_cooldown).
-    """
+async def _goto(tab, url: str, wait: float = 1.2, challenge_retries: int = 3, label: str = "page"):
     global _challenge_hits, _cooldown_until
 
     await _apply_global_cooldown()
@@ -183,32 +156,24 @@ async def _goto(tab, url: str, wait: float = 1.2, challenge_retries: int = 3, la
 
         if await _is_challenge_page(tab):
             _challenge_hits += 1
-            # Her yeni challenge'da hem bu deneme için hem de sonraki TÜM
-            # isteklerde soğuma süresi katlanarak artıyor (15s, 30s, 60s...).
             cooldown_len = min(15.0 * (2 ** (_challenge_hits - 1)), 120.0)
             _cooldown_until = time.monotonic() + cooldown_len
 
             if attempt < challenge_retries:
                 print(
-                    f"🛡️ Cloudflare doğrulama ekranı tespit edildi ({label}), "
-                    f"{cooldown_len:.0f}s soğuyup tekrar denenecek (toplam {_challenge_hits}. karşılaşma)..."
+                    f"Cloudflare challenge detected ({label}), cooling down {cooldown_len:.0f}s "
+                    f"before retrying (challenge #{_challenge_hits} this run)..."
                 )
                 await asyncio.sleep(cooldown_len)
                 continue
 
-            print(f"⚠️ Cloudflare doğrulama ekranı hâlâ geçmedi ({label}), yine de devam ediliyor...")
+            print(f"Cloudflare challenge still present ({label}), proceeding anyway...")
             await _save_diagnostic_screenshot(tab, f"cloudflare-{label}")
 
         return
 
 
 async def _row_count(tab) -> int:
-    """
-    .table-row sitede HER YERDE kullanılan genel bir class - ana sayfadaki
-    "son güncellenenler" widget'ı, 404 sayfası bile bundan birkaç tane
-    içeriyor. Bu yüzden sadece GERÇEK varyant tablosunun (.variants-table)
-    İÇİNDEKİ satırları sayıyoruz, sayfanın tamamını değil.
-    """
     try:
         result = await tab.evaluate("document.querySelectorAll('.variants-table .table-row').length")
         return int(result or 0)
@@ -250,11 +215,11 @@ async def _resolve_list_url(tab, app_config: dict, version: str) -> str:
     ]
 
     for candidate in candidates:
-        print("🔎 TRY:", candidate)
+        print("TRY:", candidate)
         if await _page_exists(tab, candidate):
             return candidate
 
-    print("⚠️ No direct match, scanning app listing page...")
+    print("No direct match, scanning app listing page...")
     listing_url = f"{folder_url}/"
 
     slug_part = f"-{version_slug}-"
@@ -277,17 +242,6 @@ async def _resolve_list_url(tab, app_config: dict, version: str) -> str:
 
 
 async def _dump_variant_rows_for_debug(tab):
-    """
-    _extract_variant_url hiçbir satır bulamadığında çağrılır. Sayfada
-    gerçekte kaç .table-row var ve her birinin mimari/dpi/etiket metni ne -
-    ekran görüntüsü yorumlamaya çalışmak yerine ham veriyi doğrudan log'a
-    basıyoruz.
-
-    NOT: JS objesini doğrudan döndürmek yerine JSON.stringify ile string
-    olarak alıp Python'da json.loads ediyoruz - nodriver'ın obje/array
-    serileştirmesi beklenmedik şekillerde dönebiliyor (ör. dict yerine
-    list), bu yüzden ham JSON metni en güvenilir yol.
-    """
     js = """
     (() => {
         const rows = document.querySelectorAll('.table-row');
@@ -312,26 +266,21 @@ async def _dump_variant_rows_for_debug(tab):
         raw = await tab.evaluate(js)
         info = json.loads(raw) if isinstance(raw, str) else raw
         print(
-            f"🔬 Teşhis: sayfada {info.get('rowCount', '?')} adet .table-row "
-            f"(bunlardan {info.get('scopedRowCount', '?')} tanesi gerçek .variants-table içinde), "
-            f"404 mü: {info.get('is404', '?')}"
+            f"Debug: page has {info.get('rowCount', '?')} .table-row elements "
+            f"({info.get('scopedRowCount', '?')} of them inside the real .variants-table), "
+            f"is404: {info.get('is404', '?')}"
         )
         for i, row in enumerate(info.get("sample", [])):
             print(f"   [{i}] cells={row.get('cellCount')} name={row.get('name')!r} arch={row.get('arch')!r} dpi={row.get('dpi')!r}")
     except Exception as e:
-        print(f"⚠️ Teşhis dökümü alınamadı: {e}")
+        print(f"Could not produce debug dump: {e}")
 
 
 async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> str | None:
     js = f"""
     (() => {{
         const rows = document.querySelectorAll('.variants-table .table-row');
-        // standalone tercih edilir, ama bazı uygulamalar (ör. Google Photos)
-        // belirli sürümlerde SADECE bundle/XAPK olarak dağıtılıyor - o yüzden
-        // bundle da (dpi ne olursa olsun) son çare olarak kabul ediliyor.
         const candidates = [null, null, null, null, null, null];
-        // [0]=standalone+nodpi [1]=standalone+anydpi [2]=standalone+herhangi-dpi
-        // [3]=bundle+nodpi     [4]=bundle+anydpi     [5]=bundle+herhangi-dpi
         const allowedArchs = ['universal', 'evrensel', 'noarch', 'arm64-v8a', 'arm64-v8a + armeabi-v7a', 'arm64-v8a + armeabi'];
         const forceBuild = {json.dumps(force_build)};
         const appName = {json.dumps(app_name)};
@@ -418,7 +367,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
         await _enable_downloads(tab, out_dir)
 
         list_url = await _resolve_list_url(tab, app_config, version)
-        print("🌐 LIST:", list_url)
+        print("LIST:", list_url)
 
         variant_url = None
         for attempt in range(4):
@@ -426,7 +375,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             variant_url = await _extract_variant_url(tab, force_build, app_name)
             if variant_url:
                 break
-            print(f"⚠️ Sayfada eşleşen satır bulunamadı, tekrar deneniyor ({attempt + 1}/4)...")
+            print(f"No matching row found on page, retrying ({attempt + 1}/4)...")
 
         if not variant_url:
             await _dump_variant_rows_for_debug(tab)
@@ -435,19 +384,19 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
         if variant_url.startswith("/"):
             variant_url = "https://www.apkmirror.com" + variant_url
 
-        print("➡️ VARIANT:", variant_url)
+        print("VARIANT:", variant_url)
 
         await _goto(tab, variant_url, wait=1.2, label="variant-page")
 
         existing_before = {f.name for f in out_dir.iterdir() if f.is_file()}
 
-        print("⬇️ Clicking main download button...")
+        print("Clicking main download button...")
         await tab.evaluate("document.querySelector('a.downloadButton')?.click()")
 
         downloaded = await _wait_for_download(out_dir, existing_before, timeout=20)
 
         if not downloaded:
-            print("⚠️ Doğrudan indirme başlamadı, confirm sayfası bekleniyor...")
+            print("Direct download did not start, waiting for confirm page...")
             await _jitter_sleep(1.5)
 
             final_href = await tab.evaluate(
@@ -455,22 +404,22 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             )
 
             if final_href:
-                print("🔗 Clicking final download link...")
+                print("Clicking final download link...")
                 await tab.evaluate("document.querySelector('#download-link')?.click()")
                 downloaded = await _wait_for_download(out_dir, existing_before, timeout=60)
 
         if not downloaded:
             current_url = await tab.evaluate("location.href")
             current_title = await tab.evaluate("document.title")
-            print(f"⚠️ İndirme başlamadı. Mevcut sayfa: {current_title!r} @ {current_url}")
+            print(f"Download did not start. Current page: {current_title!r} @ {current_url}")
             await _save_diagnostic_screenshot(tab, f"no-download-{app_name}")
-            raise RuntimeError("İndirme başlamadı / dosya tespit edilemedi (CDP download).")
+            raise RuntimeError("Download did not start / file not detected (CDP download).")
 
         size = downloaded.stat().st_size
         if size < 1024:
             raise RuntimeError(f"Downloaded file too small ({size} bytes)")
 
-        print("📦 DONE:", downloaded, f"({size / 1024 / 1024:.2f} MB)")
+        print("DONE:", downloaded, f"({size / 1024 / 1024:.2f} MB)")
         return str(downloaded)
 
     except Exception:
@@ -479,20 +428,6 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
 
 
 def _version_from_href(href: str) -> str | None:
-    """
-    APKMirror release URL'leri her zaman '...-<versiyon-tire-ile>-release/'
-    kalıbını izler. Sayfa metninden (innerText) çıkarmaya çalışmak (badge,
-    reklam vb. karışabildiği için) URL'den çıkarmaktan daha güvenilmez -
-    bu yüzden önce URL'yi deniyoruz.
-
-    NOT: Daha önce burada "son parça 6+ haneliyse versionCode'dur, at" gibi
-    bir sadeleştirme vardı - bu YANLIŞTI. Google'ın kendi uygulamaları
-    (Gboard, Google Photos) o uzun sayıyı GERÇEKTEN sürüm dizisinin bir
-    parçası olarak kullanıyor (ör. Gboard "17.7.7.932364120",
-    Google Photos "7.85.0.952162352") ve APKMirror'ın kendi URL'leri de
-    tam olarak bunu birebir içeriyor. Bu yüzden URL'de bulunan tüm
-    basamaklar OLDUĞU GİBİ döndürülüyor.
-    """
     if not href:
         return None
     match = re.search(r"-(\d[\d]*(?:-\d+)+)-release", href)
@@ -512,7 +447,7 @@ async def get_latest_listing(app_name: str) -> dict | None:
 
     try:
         listing_url = f"https://www.apkmirror.com/apk/{app_config['org']}/{app_config['slug']}/"
-        print("🌐 LISTING:", listing_url)
+        print("LISTING:", listing_url)
 
         js = """
         (() => {
@@ -532,18 +467,16 @@ async def get_latest_listing(app_name: str) -> dict | None:
             try:
                 candidates = json.loads(raw) if isinstance(raw, str) else (raw or [])
             except Exception as e:
-                print(f"⚠️ Liste verisi JSON olarak ayrıştırılamadı: {e}")
+                print(f"Could not parse listing data as JSON: {e}")
                 candidates = []
             if candidates:
                 break
-            print(f"⚠️ Liste sayfasında link bulunamadı, tekrar deneniyor ({attempt + 1}/4)...")
+            print(f"No link found on listing page, retrying ({attempt + 1}/4)...")
 
         if not candidates:
             await _save_diagnostic_screenshot(tab, f"no-listing-{app_name}")
             return None
 
-        # İlk bulunan link her zaman doğru olmayabilir (reklam, ilgili uygulama
-        # linki vb. karışabilir) - versiyon çıkarılabilen İLK adayı kullan.
         for item in candidates:
             href = item.get("href") if isinstance(item, dict) else None
             text = item.get("text", "") if isinstance(item, dict) else ""
