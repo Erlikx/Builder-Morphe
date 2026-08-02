@@ -1,0 +1,114 @@
+DISPLAY_NAMES = {
+    "youtube": "YouTube",
+    "youtube-music": "YT.Music",
+    "reddit": "Reddit",
+    "twitter": "Twitter",
+    "instagram": "Instagram",
+    "gboard": "Gboard",
+    "speedtest": "Speedtest",
+    "brave": "Brave",
+    "proton-vpn": "Proton VPN",
+    "tiktok": "TikTok",
+    "warp": "1.1.1.1",
+    "inshot": "InShot",
+    "google-photos": "Google Photos",
+}
+
+APKMIRROR_APPS = [
+    "youtube", "youtube-music", "reddit", "twitter",
+    "gboard", "brave",
+    "proton-vpn", "tiktok", "warp", "inshot", "google-photos",
+]
+
+APPS_CONFIG = {
+    "youtube": {
+        "pkg": "com.google.android.youtube", "name": "youtube", "patch_source": "morphe",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/youtube/FF0000", "exclude": [],
+    },
+    "youtube-music": {
+        "pkg": "com.google.android.apps.youtube.music", "name": "youtube-music", "patch_source": "morphe",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/youtubemusic/FF0000", "exclude": [],
+    },
+    "reddit": {
+        "pkg": "com.reddit.frontpage", "name": "reddit", "patch_source": "morphe",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/reddit/FF4500", "exclude": [],
+    },
+    "twitter": {
+        "pkg": "com.twitter.android", "name": "twitter", "patch_source": "piko",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/x/000000",
+        "exclude": ["Dynamic color"],
+        "enable": ["Bring back twitter", "Disunify xchat system", "Export all activities"],
+    },
+    "instagram": {
+        "pkg": "com.instagram.android", "name": "instagram", "patch_source": "piko",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/instagram/E4405F",
+        "exclude": [], "enable": [],
+        "force_version": "435.0.0.37.76", "force_build": "384109456",
+    },
+    "gboard": {
+        "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "adobo",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/google/4285F4",
+        "exclude": [], "force_version": "17.7.7.932364120",
+        "enable": [
+            "Enable voice typing in incognito", "Enable key shape selection",
+            "Enable clipboard in incognito", "Enable access points menu redesign",
+            "Enable Undo feature", "Enable OCR feature", "Always-incognito mode",
+        ],
+    },
+    "speedtest": {
+        "pkg": "org.zwanoo.android.speedtest", "name": "speedtest", "patch_source": "rushi",
+        "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=speedtest.net",
+        "exclude": [], "force_version": "7.0.7",
+    },
+    "brave": {
+        "pkg": "com.brave.browser", "name": "brave", "patch_source": "bufferk",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/brave/FB542B", "exclude": [],
+    },
+    "proton-vpn": {
+        "pkg": "ch.protonvpn.android", "name": "proton-vpn", "patch_source": "hoodles",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/protonvpn", "exclude": [],
+    },
+    "tiktok": {
+        "pkg": "com.zhiliaoapp.musically", "name": "tiktok", "patch_source": "tiktok",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/tiktok", "exclude": [],
+    },
+    "warp": {
+        "pkg": "com.cloudflare.onedotonedotonedotone", "name": "warp", "patch_source": "rushi",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/1dot1dot1dot1", "exclude": [],
+    },
+    "inshot": {
+        "pkg": "com.camerasideas.instashot", "name": "inshot", "patch_source": "hooman",
+        "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=inshot.com", "exclude": [],
+    },
+    "google-photos": {
+        "pkg": "com.google.android.apps.photos", "name": "google-photos", "patch_source": "rushi",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/googlephotos",
+        "force_version": "7.85.0.952162352",
+        "exclude": [],
+        "enable": [
+            "AMOLED dark theme",
+            "Change package name",
+            "Enable DCIM folders backup control",
+            "Fix DCIM folder classification",
+            "Spoof features",
+            "GmsCore support",
+        ],
+    },
+}
+
+PROCESS_ORDER = [
+    "youtube", "youtube-music", "reddit", "twitter", "instagram",
+    "gboard", "speedtest", "brave",
+    "proton-vpn", "tiktok", "warp", "inshot", "google-photos",
+]
+
+PATCH_SOURCES = {
+    "morphe": ("MorpheApp", "morphe-patches", "Morphe"),
+    "piko": ("crimera", "piko", "Piko"),
+    "adobo": ("jkennethcarino", "adobo", "Adobo"),
+    "rushi": ("rushiranpise", "morphe-patches", "Rushiranpise"),
+    "bufferk": ("bufferk", "morphe-patches", "Bufferk"),
+    "hoodles": ("hoo-dles", "morphe-patches", "hoo-dles"),
+    "tiktok": ("icysymmetra", "tiktok-patches-for-morphe", "TikTok Patches"),
+    "hooman": ("arandomhooman", "hoomans-morphe-patches", "Hooman's Patches"),
+}
