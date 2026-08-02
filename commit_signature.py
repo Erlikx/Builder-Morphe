@@ -1,14 +1,3 @@
-"""
-Matrix job'larından her biri kendi uygulamasının imza sonucunu commit'lemeye
-çalışır. Job'lar PARALEL çalıştığı için aynı anda push çakışması (race
-condition) olası. Bunu önlemek için:
-
-  1. Bu job'ın ürettiği değer(ler)i hafızada sakla
-  2. En güncel main'i çek (başka job'lar bu arada push etmiş olabilir)
-  3. Metinsel git merge/rebase yerine SADECE kendi anahtarını en güncel
-     JSON'a program içinde birleştir (çakışma riski sıfır)
-  4. Push dene, çakışırsa (araya başka biri girdiyse) tekrar dene
-"""
 import json
 import os
 import random
@@ -36,11 +25,9 @@ def load(path: Path) -> dict:
 def main():
     app_key = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("TARGET_APP")
     if not app_key:
-        print("APP_KEY belirtilmedi, çıkılıyor.")
+        print("APP_KEY not provided, exiting.")
         return
 
-    # 1) Bu job'ın kendi ürettiği değerleri sakla (henüz commit'lenmemiş,
-    #    yereldeki dosyalarda duruyor)
     local_values = {}
     for fname in FILES:
         data = load(Path(fname))
@@ -48,7 +35,7 @@ def main():
             local_values[fname] = data[app_key]
 
     if not local_values:
-        print(f"{app_key} için commit edilecek yeni bir imza kaydı yok.")
+        print(f"No new signature record to commit for {app_key}.")
         return
 
     run(["git", "config", "user.name", "github-actions[bot]"])
@@ -69,25 +56,25 @@ def main():
                 changed = True
 
         if not changed:
-            print(f"{app_key} zaten güncel main'de mevcut, commit atlanıyor.")
+            print(f"{app_key} is already up to date on main, skipping commit.")
             return
 
         run(["git", "add", *FILES])
         commit = run(["git", "commit", "-m", f"chore: update signature record for {app_key} [skip ci]"])
         if commit.returncode != 0:
-            print("Commit edilecek gerçek bir değişiklik yok.")
+            print("No real change to commit.")
             return
 
         push = run(["git", "push", "origin", "HEAD:main"])
         if push.returncode == 0:
-            print(f"✅ {app_key} için imza kaydı commit'lendi.")
+            print(f"Committed signature record for {app_key}.")
             return
 
         wait = random.uniform(2, 6) * (attempt + 1)
-        print(f"⚠️ Push çakıştı (deneme {attempt + 1}/{max_retries}), {wait:.0f}s sonra tekrar denenecek...")
+        print(f"Push conflict (attempt {attempt + 1}/{max_retries}), retrying in {wait:.0f}s...")
         time.sleep(wait)
 
-    print(f"❌ {app_key} için imza kaydı commit'lenemedi (tüm denemeler tükendi).")
+    print(f"Could not commit signature record for {app_key} (all retries exhausted).")
     sys.exit(1)
 
 
