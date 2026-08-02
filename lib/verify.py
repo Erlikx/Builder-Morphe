@@ -7,7 +7,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-_SIG_FILE = Path(os.getenv("KNOWN_SIknown_signaturesGNATURES_PATH", Path.cwd() / ".json"))
+_SIG_FILE = Path(os.getenv("KNOWN_SIGNATURES_PATH", Path.cwd() / "known_signatures.json"))
 _PENDING_FILE = Path(os.getenv("PENDING_SIGNATURES_PATH", Path.cwd() / "pending_signatures.json"))
 _DIGEST_RE = re.compile(r"certificate SHA-256 digest:\s*([0-9a-fA-F:]+)")
 
