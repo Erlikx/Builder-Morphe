@@ -14,121 +14,18 @@ from lib.verify import verify_apk_signature
 from lib import apkmirror
 from lib import githubdl
 
-DISPLAY_NAMES = {
-    "youtube": "YouTube",
-    "youtube-music": "YT.Music",
-    "reddit": "Reddit",
-    "twitter": "Twitter",
-    "instagram": "Instagram",
-    "gboard": "Gboard",
-    "speedtest": "Speedtest",
-    "brave": "Brave",
-    "proton-vpn": "Proton VPN",
-    "tiktok": "TikTok",
-    "warp": "1.1.1.1",
-    "inshot": "InShot",
-    "google-photos": "Google Photos",
-}
-
-APKMIRROR_APPS = [
-    "youtube", "youtube-music", "reddit", "twitter",
-    "gboard", "brave",
-    "proton-vpn", "tiktok", "warp", "inshot", "google-photos",
-]
-
-APPS_CONFIG = {
-    "youtube": {
-        "pkg": "com.google.android.youtube", "name": "youtube", "patch_source": "morphe",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/youtube/FF0000", "exclude": [],
-    },
-    "youtube-music": {
-        "pkg": "com.google.android.apps.youtube.music", "name": "youtube-music", "patch_source": "morphe",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/youtubemusic/FF0000", "exclude": [],
-    },
-    "reddit": {
-        "pkg": "com.reddit.frontpage", "name": "reddit", "patch_source": "morphe",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/reddit/FF4500", "exclude": [],
-    },
-    "twitter": {
-        "pkg": "com.twitter.android", "name": "twitter", "patch_source": "piko",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/x/000000",
-        "exclude": ["Dynamic color"],
-        "enable": ["Bring back twitter", "Disunify xchat system", "Export all activities"],
-    },
-    "instagram": {
-        "pkg": "com.instagram.android", "name": "instagram", "patch_source": "piko",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/instagram/E4405F",
-        "exclude": [], "enable": [],
-        "force_version": "435.0.0.37.76", "force_build": "384109456",
-    },
-    "gboard": {
-        "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "adobo",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/google/4285F4",
-        "exclude": [], "force_version": "17.7.7.932364120",
-        "enable": ["Enable voice typing in incognito", "Enable key shape selection", "Enable clipboard in incognito", "Enable access points menu redesign", "Enable Undo feature", "Enable OCR feature", "Always-incognito mode"],
-    },
-    "speedtest": {
-        "pkg": "org.zwanoo.android.speedtest", "name": "speedtest", "patch_source": "rushi",
-        "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=speedtest.net",
-        "exclude": [], "force_version": "7.0.7",
-    },
-    "brave": {
-        "pkg": "com.brave.browser", "name": "brave", "patch_source": "bufferk",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/brave/FB542B", "exclude": [],
-    },
-    "proton-vpn": {
-        "pkg": "ch.protonvpn.android", "name": "proton-vpn", "patch_source": "hoodles",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/protonvpn", "exclude": [],
-    },
-    "tiktok": {
-        "pkg": "com.zhiliaoapp.musically", "name": "tiktok", "patch_source": "tiktok",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/tiktok", "exclude": [],
-    },
-    "warp": {
-        "pkg": "com.cloudflare.onedotonedotonedotone", "name": "warp", "patch_source": "rushi",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/1dot1dot1dot1", "exclude": [],
-    },
-    "inshot": {
-        "pkg": "com.camerasideas.instashot", "name": "inshot", "patch_source": "hooman",
-        "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=inshot.com", "exclude": [],
-    },
-    "google-photos": {
-        "pkg": "com.google.android.apps.photos", "name": "google-photos", "patch_source": "rushi",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/googlephotos",
-        "force_version": "7.85.0.952162352",
-        "exclude": [],
-        "enable": [
-            "AMOLED dark theme",
-            "Change package name",
-            "Enable DCIM folders backup control",
-            "Fix DCIM folder classification",
-            "Spoof features",
-            "GmsCore support"
-        ],
-    },
-}
-
-PROCESS_ORDER = [
-    "youtube", "youtube-music", "reddit", "twitter", "instagram",
-    "gboard", "speedtest", "brave",
-    "proton-vpn", "tiktok", "warp", "inshot", "google-photos",
-]
-
-PATCH_SOURCES = {
-    "morphe": ("MorpheApp", "morphe-patches", "🟢 Morphe"),
-    "piko": ("crimera", "piko", "✖️ Piko"),
-    "adobo": ("jkennethcarino", "adobo", "🥘 Adobo"),
-    "rushi": ("rushiranpise", "morphe-patches", "⚡ Rushiranpise"),
-    "bufferk": ("bufferk", "morphe-patches", "🟣 Bufferk"),
-    "hoodles": ("hoo-dles", "morphe-patches", "🍃 hoo-dles"),
-    "tiktok": ("icysymmetra", "tiktok-patches-for-morphe", "🎵 TikTok Patches"),
-    "hooman": ("arandomhooman", "hoomans-morphe-patches", "🎬 Hooman's Patches"),
-}
+from lib.config import (
+    DISPLAY_NAMES,
+    APKMIRROR_APPS,
+    APPS_CONFIG,
+    PROCESS_ORDER,
+    PATCH_SOURCES,
+)
 
 
 async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
     config = APPS_CONFIG[app_key]
-    print(f"\n📦 PROCESSING: {config['name'].upper()}")
+    print(f"\nPROCESSING: {config['name'].upper()}")
 
     is_apkmirror_app = config["name"] in APKMIRROR_APPS
 
@@ -146,7 +43,7 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
             if versions:
                 selected_version = pick_latest_version(versions)
         except Exception as e:
-            print(f"⚠️ Sürüm listesi alınamadı: {e}")
+            print(f"Could not fetch version list: {e}")
 
     if not selected_version:
         if not is_apkmirror_app:
@@ -157,7 +54,7 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
                 selected_version = latest["version"]
 
     if not selected_version:
-        raise RuntimeError("Uygun bir sürüm numarası belirlenemedi.")
+        raise RuntimeError("Could not determine a suitable version number.")
 
     if is_apkmirror_app:
         apk_path = await apkmirror.download_apk(selected_version, config["name"], config.get("force_build"))
@@ -223,7 +120,6 @@ async def main():
                 )
 
         patched_apks_list = []
-
         failed_apps = []
 
         for app_key in apps_to_process:
@@ -234,27 +130,27 @@ async def main():
                 else:
                     failed_apps.append(app_key)
             except Exception as err:
-                print(f"❌ {app_key.upper()} failed, skipping: {err}")
+                print(f"{app_key.upper()} failed, skipping: {err}")
                 failed_apps.append(app_key)
 
             if APPS_CONFIG[app_key]["name"] in APKMIRROR_APPS and app_key != apps_to_process[-1]:
                 delay = random.uniform(6.0, 14.0)
-                print(f"⏸️ Sonraki uygulamaya geçmeden önce {delay:.0f}s bekleniyor (APKMirror istek hızını azaltmak için)...")
+                print(f"Waiting {delay:.0f}s before the next app (to reduce APKMirror request rate)...")
                 await asyncio.sleep(delay)
 
         if patched_apks_list:
             release_tag_env = os.environ.get("RELEASE_TAG")
 
             if release_tag_env:
-                print(f"\n📢 Ortak release kullanılıyor (matrix job): {release_tag_env}")
+                print(f"\nUsing shared release (matrix job): {release_tag_env}")
                 release = await get_release_by_tag(release_tag_env)
             else:
                 date = datetime.now(timezone.utc)
                 tag_date_str = date.strftime("%Y-%m-%dT%H-%M-%S")
                 release_tag = f"build-{tag_date_str}"
-                release_name = f"Patched APKs · {date.day} {date.strftime('%B %Y')}"
+                release_name = f"Patched APKs - {date.day} {date.strftime('%B %Y')}"
 
-                body = "### 📦 Latest Patched APKs\n\n"
+                body = "### Latest Patched APKs\n\n"
                 for apk in patched_apks_list:
                     body += f'* <img src="{apk["icon"]}" width="16" height="16"> **{apk["display_name"]}**\n'
                 body += "\n---\n\n"
@@ -263,7 +159,7 @@ async def main():
                     if needed[key] and notes[key]:
                         body += notes[key]
 
-                print(f"\n📢 Creating New Release: {release_tag}")
+                print(f"\nCreating new release: {release_tag}")
                 release = await ensure_release(release_tag, release_name, body)
 
             microg_uploaded = False
@@ -273,16 +169,16 @@ async def main():
                     await upload_microg_once(release)
                     microg_uploaded = True
 
-            print("\n🎉 All apps successfully published under one release!")
+            print("\nAll apps successfully published under one release!")
 
         if failed_apps:
-            print(f"\n❌ Başarısız olan uygulama(lar): {', '.join(failed_apps)}")
+            print(f"\nFailed app(s): {', '.join(failed_apps)}")
             raise SystemExit(1)
 
     except SystemExit:
         raise
     except Exception as err:
-        print("❌ Fatal error:", err)
+        print("Fatal error:", err)
         raise SystemExit(1)
     finally:
         await apkmirror.close_browser()
