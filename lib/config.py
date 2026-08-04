@@ -83,7 +83,7 @@ APPS_CONFIG = {
     "google-photos": {
         "pkg": "com.google.android.apps.photos", "name": "google-photos", "patch_source": "rushi",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/googlephotos",
-        "force_version": "7.85.0.952162352",
+        "force_version": [],
         "exclude": [],
         "enable": [
             "AMOLED dark theme",
