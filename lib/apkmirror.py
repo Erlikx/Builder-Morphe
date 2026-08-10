@@ -1,621 +1,84 @@
 import asyncio
-import json
-import random
-import re
-import time
-from pathlib import Path
-
+import logging
 import nodriver as uc
-from nodriver import cdp
 
-from .versions import to_apkmirror_version
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-APP_SITES = {
-    "youtube": {"org": "google-inc", "slug": "youtube"},
-    "youtube-music": {"org": "google-inc", "slug": "youtube-music"},
-    "reddit": {"org": "reddit-inc", "slug": "reddit"},
-    "twitter": {"org": "x-corp", "slug": "twitter", "release_slug": "x"},
-    "instagram": {"org": "instagram", "slug": "instagram"},
-    "gboard": {"org": "google-inc", "slug": "gboard", "release_slug": "gboard-the-google-keyboard"},
-    "speedtest": {"org": "ookla", "slug": "speedtest"},
-    "brave": {"org": "brave-software", "slug": "brave-browser", "release_slug": "brave-private-web-browser-vpn"},
-    "proton-vpn": {
-        "org": "proton-technologies-ag",
-        "slug": "protonvpn-secure-and-free-vpn",
-        "release_slug": "proton-vpn-fast-secure-vpn",
-    },
-    "tiktok": {"org": "tiktok-pte-ltd", "slug": "tik-tok-including-musical-ly", "release_slug": "tiktok"},
-    "warp": {
-        "org": "cloudflare",
-        "slug": "1-1-1-1-faster-safer-internet",
-        "release_slug": "1-1-1-1-warp-safer-internet",
-    },
-    "inshot": {
-        "org": "inshot-inc",
-        "slug": "inshot-video-editor-photo-editor",
-        "release_slug": "video-editor-maker-inshot",
-    },
-    "google-photos": {"org": "google-inc", "slug": "photos", "release_slug": "google-photos"},
-}
-
-USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0 Safari/537.36"
-
-DIAGNOSTICS_DIR = Path(__file__).resolve().parent.parent / "diagnostics"
-
-_CHALLENGE_MARKERS = [
-    "just a moment",
-    "checking your browser",
-    "attention required! | cloudflare",
-    "verify you are human",
-    "cf-browser-verification",
-    "cf_chl_",
-    "ddos protection by cloudflare",
-]
-
-_shared_browser = None
-_downloads_ready = False
-_challenge_hits = 0
-_cooldown_until = 0.0
-
-
-async def _jitter_sleep(base: float, spread: float = 0.6) -> None:
-    await asyncio.sleep(base + random.uniform(0, spread))
-
-
-async def get_browser():
-    global _shared_browser
-
-    if _shared_browser is not None:
-        return _shared_browser
-
-    retries = 6
-    base_delay = 4.0
-    last_err = None
-
-    for attempt in range(retries):
-        try:
-            _shared_browser = await uc.start(
-                headless=True,
-                no_sandbox=True,
-                browser_args=[
-                    "--no-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled",
-                    f"--user-agent={USER_AGENT}",
-                ],
-            )
-            return _shared_browser
-        except Exception as e:
-            last_err = e
-            delay = base_delay * (attempt + 1)
-            print(f"Could not start browser (attempt {attempt + 1}/{retries}): {e} - retrying in {delay:.0f}s")
-            await asyncio.sleep(delay)
-
-    raise last_err
-
-
-async def close_browser():
-    global _shared_browser, _downloads_ready
-    if _shared_browser is not None:
-        try:
-            _shared_browser.stop()
-        except Exception:
-            pass
-        _shared_browser = None
-        _downloads_ready = False
-
-
-async def _enable_downloads(tab, out_dir: Path):
-    global _downloads_ready
-    if _downloads_ready:
-        return
-    try:
-        await tab.send(cdp.browser.set_download_behavior(behavior="allow", download_path=str(out_dir)))
-        _downloads_ready = True
-    except Exception as e:
-        print(f"set_download_behavior failed (will still try to proceed): {e}")
-
-
-async def _is_challenge_page(tab) -> bool:
-    try:
-        content = await tab.evaluate("(document.title + ' ' + document.body.innerText.slice(0, 500)).toLowerCase()")
-    except Exception:
-        return False
-    if not content:
-        return False
-    return any(marker in content for marker in _CHALLENGE_MARKERS)
-
-
-async def _save_diagnostic_screenshot(tab, label: str):
-    try:
-        DIAGNOSTICS_DIR.mkdir(parents=True, exist_ok=True)
-        ts = int(time.time())
-        path = DIAGNOSTICS_DIR / f"{label}-{ts}.png"
-        await tab.save_screenshot(str(path))
-        print(f"Diagnostic screenshot saved: {path}")
-    except Exception as e:
-        print(f"Could not capture screenshot: {e}")
-
-
-async def _apply_global_cooldown():
-    now = time.monotonic()
-    if now < _cooldown_until:
-        remaining = _cooldown_until - now
-        print(f"Global cooldown active, waiting {remaining:.0f}s...")
-        await asyncio.sleep(remaining)
-
-
-async def _goto(tab, url: str, wait: float = 1.2, challenge_retries: int = 3, label: str = "page"):
-    global _challenge_hits, _cooldown_until
-
-    await _apply_global_cooldown()
-
-    for attempt in range(challenge_retries + 1):
-        await tab.get(url)
-        await _jitter_sleep(wait)
-
-        if await _is_challenge_page(tab):
-            _challenge_hits += 1
-            cooldown_len = min(15.0 * (2 ** (_challenge_hits - 1)), 120.0)
-            _cooldown_until = time.monotonic() + cooldown_len
-
-            if attempt < challenge_retries:
-                print(
-                    f"Cloudflare challenge detected ({label}), cooling down {cooldown_len:.0f}s "
-                    f"before retrying (challenge #{_challenge_hits} this run)..."
-                )
-                await asyncio.sleep(cooldown_len)
-                continue
-
-            print(f"Cloudflare challenge still present ({label}), proceeding anyway...")
-            await _save_diagnostic_screenshot(tab, f"cloudflare-{label}")
-
-        return
-
-
-async def _row_count(tab) -> int:
-    try:
-        result = await tab.evaluate("document.querySelectorAll('.variants-table .table-row').length")
-        return int(result or 0)
-    except Exception:
-        return 0
-
-
-async def _is_404_page(tab) -> bool:
-    try:
-        content = await tab.evaluate("document.title + ' ' + (document.body.innerText || '').slice(0, 300)")
-    except Exception:
-        return False
-    if not content:
-        return False
-    lowered = content.lower()
-    return "404" in lowered and ("whoops" in lowered or "could not be found" in lowered or "not be found" in lowered)
-
-
-async def _page_exists(tab, url: str) -> bool:
-    try:
-        await _goto(tab, url, wait=1.0, label="direct-try")
-        if await _is_404_page(tab):
-            return False
-        return (await _row_count(tab)) > 0
-    except Exception:
-        return False
-
-
-async def _resolve_list_url(tab, app_config: dict, version: str) -> str:
-    version_slug = to_apkmirror_version(version)
-    name_part = app_config.get("release_slug") or app_config["slug"]
-    folder_url = f"https://www.apkmirror.com/apk/{app_config['org']}/{app_config['slug']}"
-
-    candidates = [
-        f"{folder_url}/{name_part}-{version_slug}-release/",
-        f"{folder_url}/{name_part}-{version_slug}-release-0-release/",
-        f"{folder_url}/{name_part}-{version_slug}-beta-0-release/",
-        f"{folder_url}/{name_part}-{version_slug}-beta-1-release/",
-    ]
-
-    for candidate in candidates:
-        print("TRY:", candidate)
-        if await _page_exists(tab, candidate):
-            return candidate
-
-    print("No direct match, scanning app listing page...")
-    listing_url = f"{folder_url}/"
-
-    slug_part = f"-{version_slug}-"
-    js = f"""
-    (() => {{
-        const links = Array.from(document.querySelectorAll("a[href*='-release/']"));
-        const match = links.find(a => a.getAttribute('href').includes({json.dumps(slug_part)}));
-        return match ? match.href : null;
-    }})()
+async def bypass_turnstile(page):
     """
-
-    for attempt in range(2):
-        await _goto(tab, listing_url, wait=1.5 + attempt, label="listing-scan")
-        found_url = await tab.evaluate(js)
-        if found_url:
-            return found_url
-
-    await _save_diagnostic_screenshot(tab, f"no-match-{app_config['slug']}")
-    raise RuntimeError(f"No APKMirror release page found for version {version}")
-
-
-async def _dump_variant_rows_for_debug(tab):
-    js = """
-    (() => {
-        const rows = document.querySelectorAll('.table-row');
-        const scopedRows = document.querySelectorAll('.variants-table .table-row');
-        return JSON.stringify({
-            rowCount: rows.length,
-            scopedRowCount: scopedRows.length,
-            is404: /404/.test(document.title) || /could not be found/i.test(document.body.innerText || ''),
-            sample: Array.from(rows).slice(0, 20).map(row => {
-                const cells = row.querySelectorAll('.table-cell');
-                return {
-                    cellCount: cells.length,
-                    name: cells[0] ? cells[0].innerText.trim().slice(0, 60) : null,
-                    arch: cells[1] ? cells[1].innerText.trim() : null,
-                    dpi: cells[3] ? cells[3].innerText.trim() : null,
-                };
-            }),
-        });
-    })()
+    Cloudflare Turnstile doğrulamasını hedefsiz/ücretsiz yöntemle (nodriver + shadow DOM) geçer.
     """
     try:
-        raw = await tab.evaluate(js)
-        info = json.loads(raw) if isinstance(raw, str) else raw
-        print(
-            f"Debug: page has {info.get('rowCount', '?')} .table-row elements "
-            f"({info.get('scopedRowCount', '?')} of them inside the real .variants-table), "
-            f"is404: {info.get('is404', '?')}"
-        )
-        for i, row in enumerate(info.get("sample", [])):
-            print(f"   [{i}] cells={row.get('cellCount')} name={row.get('name')!r} arch={row.get('arch')!r} dpi={row.get('dpi')!r}")
+        await page.wait(4)
+        
+        # Turnstile kapsayıcı elementini kontrol et
+        cf_wrapper = await page.select("div.cf-turnstile", timeout=5)
+        if cf_wrapper:
+            logger.info("Turnstile elementi algılandı, tıklanıyor...")
+            await cf_wrapper.mouse_move()
+            await asyncio.sleep(0.5)
+            await cf_wrapper.click()
+            await page.wait(3)
+            return True
+
+        # Alternatif Challenge iframe tespiti
+        iframes = await page.select_all("iframe")
+        for iframe in iframes:
+            attr_str = " ".join(iframe.attributes) if iframe.attributes else ""
+            if "challenges.cloudflare.com" in attr_str:
+                logger.info("Cloudflare iframe algılandı, tıklanıyor...")
+                await iframe.click()
+                await page.wait(3)
+                break
     except Exception as e:
-        print(f"Could not produce debug dump: {e}")
+        logger.warning(f"Turnstile kontrolü tamamlandı veya gerekmedi: {e}")
 
-
-async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> str | None:
-    js = f"""
-    (() => {{
-        const rows = document.querySelectorAll('.variants-table .table-row');
-        const candidates = [null, null, null, null, null, null];
-        const allowedArchs = ['universal', 'evrensel', 'noarch', 'arm64-v8a', 'arm64-v8a + armeabi-v7a', 'arm64-v8a + armeabi'];
-        const forceBuild = {json.dumps(force_build)};
-        const appName = {json.dumps(app_name)};
-
-        for (const row of rows) {{
-            const cells = row.querySelectorAll('.table-cell');
-            if (cells.length < 4) continue;
-
-            const link = cells[0].querySelector('a.accent_color');
-            if (!link) continue;
-
-            if (forceBuild && !cells[0].innerText.includes(forceBuild)) continue;
-
-            const badge = cells[0].querySelector('.apkm-badge');
-            const badgeText = badge ? badge.innerText.toUpperCase() : '';
-            const isBundle = badgeText.includes('BUNDLE') || badgeText.includes('PAKET');
-
-            if (appName === 'instagram' && !isBundle) continue;
-
-            const archText = (cells[1].innerText || '').trim().toLowerCase();
-            const dpiText = (cells[3].innerText || '').trim().toLowerCase();
-
-            const isTargetArch = archText === '' || allowedArchs.some(a => archText.includes(a));
-            if (!isTargetArch) continue;
-
-            const isNodpi = dpiText === '' || dpiText.includes('nodpi');
-            const isAnydpi = dpiText.includes('anydpi');
-
-            let slot;
-            if (isNodpi) slot = isBundle ? 3 : 0;
-            else if (isAnydpi) slot = isBundle ? 4 : 1;
-            else slot = isBundle ? 5 : 2;
-
-            if (!candidates[slot]) candidates[slot] = link.href;
-        }}
-
-        return candidates.find(c => c) || null;
-    }})()
+async def get_apkmirror_download_link(apkmirror_url: str) -> str:
     """
-    return await tab.evaluate(js)
-
-
-_DPI_TOKENS = {"ldpi", "mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi", "tvdpi", "nodpi", "anydpi"}
-_ARCH_TOKEN_MAP = {
-    "arm64-v8a": "arm64_v8a",
-    "armeabi-v7a": "armeabi_v7a",
-    "x86": "x86",
-    "x86_64": "x86_64",
-}
-
-
-def _strip_apkm_language_splits(apkm_path: Path, keep_arch: str) -> Path:
-    """Removes unneeded split_config.<lang>.apk entries from a downloaded .apkm
-    bundle, keeping only base.apk plus the splits for the target architecture
-    and screen densities. This reduces the number of modules morphe-desktop
-    has to merge, which lowers the chance of resource ID / string reconciliation
-    issues (e.g. unresolved @string/... labels) during the bundle merge step.
+    APKMirror bağlantısını açar, Turnstile engellerini aşar ve doğrudan APK indirme bağlantısını döndürür.
     """
-    import zipfile
-
-    if apkm_path.suffix.lower() != ".apkm":
-        return apkm_path
-
-    keep_arch_token = _ARCH_TOKEN_MAP.get(keep_arch)
-    tmp_path = apkm_path.with_suffix(".apkm.tmp")
-
-    try:
-        with zipfile.ZipFile(apkm_path, "r") as src:
-            entries = src.namelist()
-            kept, dropped = [], []
-
-            for name in entries:
-                base_name = name.rsplit("/", 1)[-1]
-
-                if base_name == "base.apk" or not base_name.startswith("split_config."):
-                    kept.append(name)
-                    continue
-
-                config_token = base_name[len("split_config."):]
-                if config_token.endswith(".apk"):
-                    config_token = config_token[: -len(".apk")]
-                config_token = config_token.lower()
-
-                if config_token in _DPI_TOKENS:
-                    kept.append(name)
-                elif keep_arch_token and config_token == keep_arch_token:
-                    kept.append(name)
-                else:
-                    dropped.append(name)
-
-            if not dropped:
-                return apkm_path
-
-            with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as dst:
-                for name in kept:
-                    dst.writestr(name, src.read(name))
-
-        tmp_path.replace(apkm_path)
-        print(f"Stripped {len(dropped)} language split(s) from bundle, kept {len(kept)} module(s)")
-    except Exception as e:
-        print(f"Could not strip language splits from bundle (will proceed as-is): {e}")
-        if tmp_path.exists():
-            tmp_path.unlink(missing_ok=True)
-
-    return apkm_path
-
-
-async def _wait_for_download(out_dir: Path, existing: set, timeout: float = 60.0):
-    deadline = time.monotonic() + timeout
-    last_sizes = {}
-
-    while time.monotonic() < deadline:
-        await asyncio.sleep(1.0)
-        try:
-            current = {f.name: f for f in out_dir.iterdir() if f.is_file()}
-        except FileNotFoundError:
-            continue
-
-        new_files = [
-            f for name, f in current.items()
-            if name not in existing and not name.endswith((".crdownload", ".tmp"))
+    logger.info(f"Sayfa açılıyor: {apkmirror_url}")
+    
+    # Anti-bot tespitini engellemek için headful modda başlatılır (Xvfb ile çalışır)
+    browser = await uc.start(
+        headless=False,
+        browser_args=[
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-blink-features=AutomationControlled",
+            "--window-size=1920,1080",
+            "--start-maximized"
         ]
-        if not new_files:
-            continue
-
-        candidate = max(new_files, key=lambda f: f.stat().st_mtime)
-        size = candidate.stat().st_size
-
-        if size > 0 and last_sizes.get(candidate.name) == size:
-            return candidate
-
-        last_sizes[candidate.name] = size
-
-    return None
-
-
-async def _click_and_wait_for_download(tab, out_dir: Path, variant_url: str, app_name: str):
-    """Navigates to the variant page fresh, clicks the download button, and tries to
-    get through the (optional) Cloudflare-guarded confirm page. Returns the downloaded
-    Path on success, or None if the whole attempt was blocked by a persistent challenge.
-    """
-    await _goto(tab, variant_url, wait=1.2, label="variant-page")
-
-    # Small human-like warm-up before clicking; some Cloudflare heuristics score an
-    # instant, event-less click higher as automation.
-    try:
-        await tab.evaluate("window.scrollTo(0, Math.floor(document.body.scrollHeight * 0.2))")
-    except Exception:
-        pass
-    await _jitter_sleep(0.8, 1.2)
-
-    existing_before = {f.name for f in out_dir.iterdir() if f.is_file()}
-
-    print("Clicking main download button...")
-    await tab.evaluate("document.querySelector('a.downloadButton')?.click()")
-
-    downloaded = await _wait_for_download(out_dir, existing_before, timeout=20)
-    if downloaded:
-        return downloaded
-
-    print("Direct download did not start, waiting for confirm page...")
-    await _jitter_sleep(1.5)
-
-    global _challenge_hits, _cooldown_until
-
-    max_confirm_attempts = 6
-    max_cooldown = 90.0
-
-    for confirm_attempt in range(max_confirm_attempts):
-        if not await _is_challenge_page(tab):
-            break
-
-        _challenge_hits += 1
-        cooldown_len = min(15.0 * (2 ** min(confirm_attempt, 3)), max_cooldown)
-        _cooldown_until = time.monotonic() + cooldown_len
-        print(
-            f"Cloudflare challenge detected (confirm-page), waiting {cooldown_len:.0f}s "
-            f"before a fresh reload (attempt {confirm_attempt + 1}/{max_confirm_attempts}, "
-            f"challenge #{_challenge_hits} this run)..."
-        )
-        await asyncio.sleep(cooldown_len)
-
-        # Reload the confirm URL fresh instead of just re-checking the same stale DOM -
-        # a brand-new request sometimes gets a different challenge outcome than sitting
-        # on a page that already failed the check once.
-        current_url = await tab.evaluate("location.href")
-        if current_url:
-            await _goto(tab, current_url, wait=1.5, challenge_retries=0, label="confirm-page-reload")
-
-    final_href = await tab.evaluate(
-        "(() => { const el = document.querySelector('#download-link'); return el ? el.getAttribute('href') : null; })()"
     )
 
-    if final_href:
-        print("Clicking final download link...")
-        await tab.evaluate("document.querySelector('#download-link')?.click()")
-        downloaded = await _wait_for_download(out_dir, existing_before, timeout=60)
-
-    return downloaded
-
-
-async def download_apk(version: str, app_name: str = "youtube", force_build: str | None = None) -> str:
-    app_config = APP_SITES.get(app_name)
-    if not app_config:
-        raise RuntimeError(f'Unknown appName "{app_name}" - not found in APP_SITES')
-
-    out_dir = Path(__file__).resolve().parent.parent / "downloads"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    browser = await get_browser()
-    tab = browser.main_tab
-
     try:
-        await _enable_downloads(tab, out_dir)
+        page = await browser.get(apkmirror_url)
+        await bypass_turnstile(page)
 
-        list_url = await _resolve_list_url(tab, app_config, version)
-        print("LIST:", list_url)
+        # Detay sayfasındaki indirme butonuna tıkla
+        download_btn = await page.select("a.downloadButton", timeout=10)
+        if download_btn:
+            logger.info("İndirme butonuna basılıyor...")
+            await download_btn.click()
+            await page.wait(3)
+            await bypass_turnstile(page)
 
-        variant_url = None
-        for attempt in range(4):
-            await _goto(tab, list_url, wait=1.5 + attempt * 1.0, label="list-page")
-            variant_url = await _extract_variant_url(tab, force_build, app_name)
-            if variant_url:
-                break
-            print(f"No matching row found on page, retrying ({attempt + 1}/4)...")
+        # Doğrudan indirme bağlantısını (download.php) yakala
+        final_link = await page.select("a[rel='nofollow'][href*='download.php']", timeout=10)
+        if final_link and final_link.attributes:
+            download_url = final_link.attributes.get("href")
+            if download_url and not download_url.startswith("http"):
+                download_url = "https://www.apkmirror.com" + download_url
+            logger.info(f"İndirme bağlantısı başarıyla çekildi: {download_url}")
+            return download_url
 
-        if not variant_url:
-            await _dump_variant_rows_for_debug(tab)
-            await _save_diagnostic_screenshot(tab, f"no-variant-{app_name}")
-            raise RuntimeError("No matching variant found on APKMirror")
-        if variant_url.startswith("/"):
-            variant_url = "https://www.apkmirror.com" + variant_url
+        return page.url
+    finally:
+        browser.stop()
 
-        print("VARIANT:", variant_url)
-
-        downloaded = await _click_and_wait_for_download(tab, out_dir, variant_url, app_name)
-
-        if not downloaded:
-            # Persistent challenge even after multiple fresh reloads - the browser/tab's
-            # fingerprint or session may already be flagged. Tear it down completely and
-            # retry once from scratch with a brand-new browser (new cookies, new profile).
-            print("Still blocked after repeated reloads - restarting browser with a clean session...")
-            await close_browser()
-            browser = await get_browser()
-            tab = browser.main_tab
-            await _enable_downloads(tab, out_dir)
-            downloaded = await _click_and_wait_for_download(tab, out_dir, variant_url, app_name)
-
-        if not downloaded:
-            current_url = await tab.evaluate("location.href")
-            current_title = await tab.evaluate("document.title")
-            print(f"Download did not start. Current page: {current_title!r} @ {current_url}")
-            await _save_diagnostic_screenshot(tab, f"no-download-{app_name}")
-            raise RuntimeError("Download did not start / file not detected (CDP download).")
-
-        size = downloaded.stat().st_size
-        if size < 1024:
-            raise RuntimeError(f"Downloaded file too small ({size} bytes)")
-
-        print("DONE:", downloaded, f"({size / 1024 / 1024:.2f} MB)")
-
-        downloaded = _strip_apkm_language_splits(downloaded, "arm64-v8a")
-
-        return str(downloaded)
-
-    except Exception:
-        await _save_diagnostic_screenshot(tab, f"error-{app_name}")
-        raise
-
-
-def _version_from_href(href: str) -> str | None:
-    if not href:
-        return None
-    match = re.search(r"-(\d[\d]*(?:-\d+)+)-release", href)
-    if not match:
-        return None
-
-    return match.group(1).replace("-", ".")
-
-
-async def get_latest_listing(app_name: str) -> dict | None:
-    app_config = APP_SITES.get(app_name)
-    if not app_config:
-        raise RuntimeError(f'Unknown appName "{app_name}" - not found in APP_SITES')
-
-    browser = await get_browser()
-    tab = browser.main_tab
-
-    try:
-        listing_url = f"https://www.apkmirror.com/apk/{app_config['org']}/{app_config['slug']}/"
-        print("LISTING:", listing_url)
-
-        js = """
-        (() => {
-            const links = Array.from(document.querySelectorAll("a[href*='-release/']")).slice(0, 15);
-            return JSON.stringify(links.map(link => {
-                const row = link.closest('div, li, tr') || link.parentElement;
-                const text = row ? row.innerText : link.innerText;
-                return { href: link.href, text: text || '' };
-            }));
-        })()
-        """
-
-        candidates = []
-        for attempt in range(4):
-            await _goto(tab, listing_url, wait=2.5 + attempt * 1.2, label="app-listing")
-            raw = await tab.evaluate(js)
-            try:
-                candidates = json.loads(raw) if isinstance(raw, str) else (raw or [])
-            except Exception as e:
-                print(f"Could not parse listing data as JSON: {e}")
-                candidates = []
-            if candidates:
-                break
-            print(f"No link found on listing page, retrying ({attempt + 1}/4)...")
-
-        if not candidates:
-            await _save_diagnostic_screenshot(tab, f"no-listing-{app_name}")
-            return None
-
-        for item in candidates:
-            href = item.get("href") if isinstance(item, dict) else None
-            text = item.get("text", "") if isinstance(item, dict) else ""
-
-            version = _version_from_href(href)
-            if not version:
-                match = re.search(r"\d+(?:\.\d+)+", text)
-                version = match.group(0) if match else None
-
-            if version:
-                return {"version": version, "href": href}
-
-        await _save_diagnostic_screenshot(tab, f"no-version-{app_name}")
-        return None
-
-    except Exception:
-        await _save_diagnostic_screenshot(tab, f"error-listing-{app_name}")
-        raise
+if __name__ == "__main__":
+    # Test için
+    test_url = "https://www.apkmirror.com/"
+    asyncio.run(get_apkmirror_download_link(test_url))
