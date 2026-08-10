@@ -49,7 +49,7 @@ APPS_CONFIG = {
         "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "adobo",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/google/4285F4",
         "exclude": [], "force_version": "17.7.7.932364120",
-        "enable": [],
+        "enable": ["Always-incognito mode", "Enable OCR feature", "Enable clipboard in incognito", "Disable mobile ads", "Block ads, trackers, and analytics", "Spoof signature verification", "Deactivate Firebase Analytics", "Spoof Firebase certificate hash", "Deactivate Firebase Performance Monitoring", "Replace Google Maps API key", "Spoof Advertising ID", "Remove internet permission", "Change package name", "Disable metrics collection in WebView", "Disable Google Safe Browsing in WebView", "Toggle feature flags", "Enable voice typing in incognito", "Enable key shape selection", "Enable access points menu redesign", "Enable Undo feature"],
     },
     "speedtest": {
         "pkg": "org.zwanoo.android.speedtest", "name": "speedtest", "patch_source": "rushi",
