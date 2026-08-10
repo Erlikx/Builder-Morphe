@@ -3,7 +3,7 @@ import os
 import re
 
 from lib.github import download_latest_github_asset
-from lib.release import get_release_by_tag, update_release_body, delete_other_releases
+from lib.release import get_release_by_tag, update_release_body, delete_other_releases, publish_release
 from lib.config import APPS_CONFIG, DISPLAY_NAMES, PATCH_SOURCES
 
 NAME_TO_KEY = {v: k for k, v in DISPLAY_NAMES.items()}
@@ -90,8 +90,14 @@ async def main():
             print("Release body updated.")
         except Exception as e:
             print(f"Failed to update release body: {e}")
+
+        try:
+            await publish_release(release["id"])
+            print("Release published.")
+        except Exception as e:
+            print(f"Failed to publish release: {e}")
     else:
-        print("No published APKs matched, leaving release body as is.")
+        print("No published APKs matched, leaving release as a draft.")
 
     try:
         await delete_other_releases(release["id"])
