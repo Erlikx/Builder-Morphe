@@ -16,7 +16,7 @@ async def main():
     )
 
     print(f"\nCreating shared release: {tag}")
-    release = await ensure_release(tag, name, body, draft=True)
+    release = await ensure_release(tag, name, body, draft=False)
 
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
