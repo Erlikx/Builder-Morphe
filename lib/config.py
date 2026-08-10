@@ -46,10 +46,10 @@ APPS_CONFIG = {
         "force_version": "435.0.0.37.76", "force_build": "384109456",
     },
     "gboard": {
-        "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "adobo",
+        "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "jasonwu",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/google/4285F4",
         "exclude": [], "force_version": "17.7.7.932364120",
-        "enable": ["Always-incognito mode", "Enable OCR feature", "Enable clipboard in incognito", "Disable mobile ads", "Block ads, trackers, and analytics", "Spoof signature verification", "Deactivate Firebase Analytics", "Spoof Firebase certificate hash", "Deactivate Firebase Performance Monitoring", "Replace Google Maps API key", "Spoof Advertising ID", "Remove internet permission", "Change package name", "Disable metrics collection in WebView", "Disable Google Safe Browsing in WebView", "Toggle feature flags", "Enable voice typing in incognito", "Enable key shape selection", "Enable access points menu redesign", "Enable Undo feature"],
+        "enable": ["AI Writing Tools", "Add Gboard Signature Bypass", "Advanced Voice Typing", "Clipboard Custom Character Limit", "Clipboard Enhancements", "Custom Symbols", "Developer options", "Emojis, stickers & GIFs Tab Order", "Enable Inline Autofill Suggestions", "Enable OCR / Scan Text", "English QWERTY Up-Flick Uppercase", "Grammar Checker", "Inline Suggestions", "Key Shape Selection", "Latin Globe Key Ignore Interval", "Long-Press Editing Shortcuts", "Package Rename", "Settings Homepage Override", "Swipeable Custom Top Row", "Use Bluetooth Microphone", "Web Clipboard", "Zhuyin Bottom Row Key Sizes", "Zhuyin Quick Traditional/Simplified Toggle", "Zhuyin Slide Input"],
     },
     "speedtest": {
         "pkg": "org.zwanoo.android.speedtest", "name": "speedtest", "patch_source": "rushi",
@@ -107,4 +107,5 @@ PATCH_SOURCES = {
     "hoodles": ("hoo-dles", "morphe-patches", "hoo-dles"),
     "tiktok": ("icysymmetra", "tiktok-patches-for-morphe", "TikTok Patches"),
     "hooman": ("arandomhooman", "hoomans-morphe-patches", "Hooman's Patches"),
+    "jasonwu": ("jasonwu1994", "Gboard-patches", "Gboard Patches"),
 }
