@@ -42,8 +42,6 @@ APPS_CONFIG = {
     "instagram": {
         "pkg": "com.instagram.android", "name": "instagram", "patch_source": "piko",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/instagram/E4405F",
-        "exclude": [], "enable": [],
-        "force_version": "435.0.0.37.76", "force_build": "384109456",
     },
     "gboard": {
         "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "jasonwu",
