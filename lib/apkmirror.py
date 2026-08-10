@@ -464,6 +464,22 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             print("Direct download did not start, waiting for confirm page...")
             await _jitter_sleep(1.5)
 
+            for confirm_attempt in range(4):
+                if await _is_challenge_page(tab):
+                    global _challenge_hits, _cooldown_until
+                    _challenge_hits += 1
+                    cooldown_len = min(15.0 * (2 ** (_challenge_hits - 1)), 120.0)
+                    _cooldown_until = time.monotonic() + cooldown_len
+                    print(
+                        f"Cloudflare challenge detected (confirm-page), cooling down {cooldown_len:.0f}s "
+                        f"before retrying (challenge #{_challenge_hits} this run)..."
+                    )
+                    await asyncio.sleep(cooldown_len)
+                    await tab.reload()
+                    await _jitter_sleep(1.5)
+                    continue
+                break
+
             final_href = await tab.evaluate(
                 "(() => { const el = document.querySelector('#download-link'); return el ? el.getAttribute('href') : null; })()"
             )
