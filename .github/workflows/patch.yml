@@ -1,42 +1,244 @@
-name: Builder Morphe Auto Patch
+name: Patch Morphe (Python)
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 0 * * *"
 
 jobs:
-  build:
+  prepare:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: write
+
+    outputs:
+      release_tag: ${{ steps.release.outputs.tag }}
 
     steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Checkout
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
-          python-version: "3.11"
-          cache: "pip"
+          ref: main
+          persist-credentials: true
 
-      - name: Install Virtual Screen & Browser Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            xvfb \
-            libgbm-dev \
-            libasound2 \
-            libnss3 \
-            libatk-bridge2.0-0 \
-            libgtk-3-0
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
 
-      - name: Install Python Requirements
+      - name: Install & freeze Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install --upgrade -r requirements.txt
+          pip freeze > requirements-lock.txt
 
-      - name: Run Morphe Builder (Xvfb Virtual Display)
+      - name: Commit updated lockfile
+        run: |
+          if [ -n "$(git status --porcelain -- requirements-lock.txt)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add requirements-lock.txt
+            git commit -m "chore: update requirements-lock.txt [skip ci]"
+            git push
+          else
+            echo "requirements-lock.txt unchanged, skipping commit."
+          fi
+
+      - name: Create shared release
+        id: release
+        run: python create_release.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+  patch:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    permissions:
+      contents: write
+      actions: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        app:
+          - youtube
+          - youtube-music
+          - reddit
+          - twitter
+          - instagram
+          - gboard
+          - speedtest
+          - brave
+          - proton-vpn
+          - tiktok
+          - warp
+          - inshot
+          - google-photos
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Setup Java
+        uses: actions/setup-java@03ad4de0992f5dab5e18fcb136590ce7c4a0ac95 # v5.6.0
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Install Google Chrome
         run: |
-          xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" python main.py
+          if command -v google-chrome-stable >/dev/null 2>&1; then
+            echo "Chrome already installed, skipping: $(google-chrome-stable --version)"
+          else
+            wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/google-chrome.gpg
+            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+            sudo apt-get update
+            sudo apt-get install -y google-chrome-stable
+          fi
+
+      - name: Install apksigner (Android SDK build-tools)
+        run: |
+          APKSIGNER_BIN=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -maxdepth 2 -name apksigner 2>/dev/null | sort -V | tail -1)
+
+          if [ -z "$APKSIGNER_BIN" ]; then
+            echo "apksigner not found, downloading Android command-line tools..."
+            SDK_ROOT="$HOME/android-sdk"
+            mkdir -p "$SDK_ROOT/cmdline-tools"
+            curl -sL https://dl.google.com/android/repository/commandlinetools-linux-latest.zip -o cmdline-tools.zip
+            unzip -q cmdline-tools.zip -d "$SDK_ROOT/cmdline-tools"
+            mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+            yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses > /dev/null 2>&1 || true
+            "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "build-tools;35.0.0"
+            APKSIGNER_BIN="$SDK_ROOT/build-tools/35.0.0/apksigner"
+          else
+            echo "apksigner already installed: $APKSIGNER_BIN"
+          fi
+
+          echo "APKSIGNER_PATH=$APKSIGNER_BIN" >> "$GITHUB_ENV"
+          "$APKSIGNER_BIN" --version
+
+      - name: Install Python dependencies (from lockfile, pinned versions)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-lock.txt
+
+      - name: Fix nodriver non-UTF-8 source bug (upstream)
+        run: |
+          python3 - << 'PYEOF'
+          import pathlib
+          import site
+
+          patched_any = False
+
+          for base in site.getsitepackages():
+              cdp_dir = pathlib.Path(base) / "nodriver" / "cdp"
+              if not cdp_dir.exists():
+                  continue
+              for py_file in cdp_dir.glob("*.py"):
+                  raw = py_file.read_bytes()
+                  try:
+                      raw.decode("utf-8")
+                  except UnicodeDecodeError:
+                      fixed = raw.decode("latin-1").encode("utf-8")
+                      py_file.write_bytes(fixed)
+                      print(f"Patched invalid UTF-8 bytes in: {py_file}")
+                      patched_any = True
+
+          if not patched_any:
+              print("nodriver source files are already valid UTF-8, no fix needed.")
+          PYEOF
+
+      - name: Setup Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > Panemi.keystore
+
+      - name: Run script
+        run: python -u main.py
+        env:
+          PYTHONUNBUFFERED: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TARGET_APP: ${{ matrix.app }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          KS_PATH: "Panemi.keystore"
+          KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Upload diagnostic screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diagnostics-${{ matrix.app }}-${{ github.run_id }}
+          path: diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Commit updated signature files
+        if: always()
+        run: python commit_signature.py "${{ matrix.app }}"
+
+      - name: Generate build provenance attestation
+        if: ${{ hashFiles('*.apk') != '' }}
+        uses: actions/attest@f7c74d28b9d84cb8768d0b8ca14a4bac6ef463e6 # v4.2.0
+        with:
+          subject-path: |
+            *.apk
+            !microg*.apk
+
+  finalize:
+    needs: [prepare, patch]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Update release body and clean up old releases
+        run: python finalize_release.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+
+  cleanup:
+    needs: finalize
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@b3018382ca039b53d238908238bd35d1fb14f8ee # v2.1.0
+        with:
+          retain_days: 0
+          keep_minimum_runs: 1
