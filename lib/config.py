@@ -71,6 +71,7 @@ APPS_CONFIG = {
     "warp": {
         "pkg": "com.cloudflare.onedotonedotonedotone", "name": "warp", "patch_source": "rushi",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/1dot1dot1dot1", "exclude": [],
+        "enable": ["Disable SSL Pinning"],
     },
     "inshot": {
         "pkg": "com.camerasideas.instashot", "name": "inshot", "patch_source": "hooman",
