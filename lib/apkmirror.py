@@ -417,6 +417,71 @@ async def _wait_for_download(out_dir: Path, existing: set, timeout: float = 60.0
     return None
 
 
+async def _click_and_wait_for_download(tab, out_dir: Path, variant_url: str, app_name: str):
+    """Navigates to the variant page fresh, clicks the download button, and tries to
+    get through the (optional) Cloudflare-guarded confirm page. Returns the downloaded
+    Path on success, or None if the whole attempt was blocked by a persistent challenge.
+    """
+    await _goto(tab, variant_url, wait=1.2, label="variant-page")
+
+    # Small human-like warm-up before clicking; some Cloudflare heuristics score an
+    # instant, event-less click higher as automation.
+    try:
+        await tab.evaluate("window.scrollTo(0, Math.floor(document.body.scrollHeight * 0.2))")
+    except Exception:
+        pass
+    await _jitter_sleep(0.8, 1.2)
+
+    existing_before = {f.name for f in out_dir.iterdir() if f.is_file()}
+
+    print("Clicking main download button...")
+    await tab.evaluate("document.querySelector('a.downloadButton')?.click()")
+
+    downloaded = await _wait_for_download(out_dir, existing_before, timeout=20)
+    if downloaded:
+        return downloaded
+
+    print("Direct download did not start, waiting for confirm page...")
+    await _jitter_sleep(1.5)
+
+    global _challenge_hits, _cooldown_until
+
+    max_confirm_attempts = 6
+    max_cooldown = 90.0
+
+    for confirm_attempt in range(max_confirm_attempts):
+        if not await _is_challenge_page(tab):
+            break
+
+        _challenge_hits += 1
+        cooldown_len = min(15.0 * (2 ** min(confirm_attempt, 3)), max_cooldown)
+        _cooldown_until = time.monotonic() + cooldown_len
+        print(
+            f"Cloudflare challenge detected (confirm-page), waiting {cooldown_len:.0f}s "
+            f"before a fresh reload (attempt {confirm_attempt + 1}/{max_confirm_attempts}, "
+            f"challenge #{_challenge_hits} this run)..."
+        )
+        await asyncio.sleep(cooldown_len)
+
+        # Reload the confirm URL fresh instead of just re-checking the same stale DOM -
+        # a brand-new request sometimes gets a different challenge outcome than sitting
+        # on a page that already failed the check once.
+        current_url = await tab.evaluate("location.href")
+        if current_url:
+            await _goto(tab, current_url, wait=1.5, challenge_retries=0, label="confirm-page-reload")
+
+    final_href = await tab.evaluate(
+        "(() => { const el = document.querySelector('#download-link'); return el ? el.getAttribute('href') : null; })()"
+    )
+
+    if final_href:
+        print("Clicking final download link...")
+        await tab.evaluate("document.querySelector('#download-link')?.click()")
+        downloaded = await _wait_for_download(out_dir, existing_before, timeout=60)
+
+    return downloaded
+
+
 async def download_apk(version: str, app_name: str = "youtube", force_build: str | None = None) -> str:
     app_config = APP_SITES.get(app_name)
     if not app_config:
@@ -451,41 +516,18 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
 
         print("VARIANT:", variant_url)
 
-        await _goto(tab, variant_url, wait=1.2, label="variant-page")
-
-        existing_before = {f.name for f in out_dir.iterdir() if f.is_file()}
-
-        print("Clicking main download button...")
-        await tab.evaluate("document.querySelector('a.downloadButton')?.click()")
-
-        downloaded = await _wait_for_download(out_dir, existing_before, timeout=20)
+        downloaded = await _click_and_wait_for_download(tab, out_dir, variant_url, app_name)
 
         if not downloaded:
-            print("Direct download did not start, waiting for confirm page...")
-            await _jitter_sleep(1.5)
-
-            for confirm_attempt in range(4):
-                if await _is_challenge_page(tab):
-                    global _challenge_hits, _cooldown_until
-                    _challenge_hits += 1
-                    cooldown_len = min(15.0 * (2 ** (_challenge_hits - 1)), 120.0)
-                    _cooldown_until = time.monotonic() + cooldown_len
-                    print(
-                        f"Cloudflare challenge detected (confirm-page), waiting {cooldown_len:.0f}s "
-                        f"for it to auto-resolve (challenge #{_challenge_hits} this run)..."
-                    )
-                    await asyncio.sleep(cooldown_len)
-                    continue
-                break
-
-            final_href = await tab.evaluate(
-                "(() => { const el = document.querySelector('#download-link'); return el ? el.getAttribute('href') : null; })()"
-            )
-
-            if final_href:
-                print("Clicking final download link...")
-                await tab.evaluate("document.querySelector('#download-link')?.click()")
-                downloaded = await _wait_for_download(out_dir, existing_before, timeout=60)
+            # Persistent challenge even after multiple fresh reloads - the browser/tab's
+            # fingerprint or session may already be flagged. Tear it down completely and
+            # retry once from scratch with a brand-new browser (new cookies, new profile).
+            print("Still blocked after repeated reloads - restarting browser with a clean session...")
+            await close_browser()
+            browser = await get_browser()
+            tab = browser.main_tab
+            await _enable_downloads(tab, out_dir)
+            downloaded = await _click_and_wait_for_download(tab, out_dir, variant_url, app_name)
 
         if not downloaded:
             current_url = await tab.evaluate("location.href")
