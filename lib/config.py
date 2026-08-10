@@ -48,8 +48,9 @@ APPS_CONFIG = {
     "gboard": {
         "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "jasonwu",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/google/4285F4",
-        "exclude": [], "force_version": "17.7.7.932364120",
-        "enable": ["AI Writing Tools", "Advanced Voice Typing", "Clipboard Enhancements", "Clipboard Custom Character Limit", "Web Clipboard", "Long-Press Editing Shortcuts", "Enable OCR / Scan Text", "Custom Symbols", "Swipeable Custom Top Row", "Emojis, stickers & GIFs Tab Order", "English QWERTY Up-Flick Uppercase", "Enable Inline Autofill Suggestions", "Grammar Checker", "Inline Suggestions", "Key Shape Selection", "Latin Globe Key Ignore Interval", "Use Bluetooth Microphone", "Settings Homepage Override", "Developer options", "Package Rename"],
+        "exclude": ["Zhuyin Bottom Row Key Sizes", "Zhuyin Quick Traditional/ Simplified Toggle", "Zhuyin Slide Input"], 
+        "force_version": "17.7.7.932364120",
+        
     },
     "speedtest": {
         "pkg": "org.zwanoo.android.speedtest", "name": "speedtest", "patch_source": "rushi",
