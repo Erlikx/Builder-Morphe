@@ -134,9 +134,6 @@ async def main():
                 failed_apps.append(app_key)
 
             if APPS_CONFIG[app_key]["name"] in APKMIRROR_APPS and app_key != apps_to_process[-1]:
-                print("Closing browser session to get a fresh session for the next app...")
-                await apkmirror.close_browser()
-
                 delay = random.uniform(6.0, 14.0)
                 print(f"Waiting {delay:.0f}s before the next app (to reduce APKMirror request rate)...")
                 await asyncio.sleep(delay)
