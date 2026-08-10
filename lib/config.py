@@ -46,10 +46,14 @@ APPS_CONFIG = {
         "force_version": "435.0.0.37.76", "force_build": "384109456",
     },
     "gboard": {
-        "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "jasonwu",
+        "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "adobo",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/google/4285F4",
         "exclude": [], "force_version": "17.7.7.932364120",
-        "enable": ["AI Writing Tools", "Add Gboard Signature Bypass", "Advanced Voice Typing", "Clipboard Custom Character Limit", "Clipboard Enhancements", "Custom Symbols", "Developer options", "Emojis, stickers & GIFs Tab Order", "Enable Inline Autofill Suggestions", "Enable OCR / Scan Text", "English QWERTY Up-Flick Uppercase", "Grammar Checker", "Inline Suggestions", "Key Shape Selection", "Latin Globe Key Ignore Interval", "Long-Press Editing Shortcuts", "Package Rename", "Settings Homepage Override", "Swipeable Custom Top Row", "Use Bluetooth Microphone", "Web Clipboard", "Zhuyin Bottom Row Key Sizes", "Zhuyin Quick Traditional/Simplified Toggle", "Zhuyin Slide Input"],
+        "enable": [
+            "Enable voice typing in incognito", "Enable key shape selection",
+            "Enable clipboard in incognito", "Enable access points menu redesign",
+            "Enable Undo feature", "Enable OCR feature", "Always-incognito mode",
+        ],
     },
     "speedtest": {
         "pkg": "org.zwanoo.android.speedtest", "name": "speedtest", "patch_source": "rushi",
@@ -71,7 +75,6 @@ APPS_CONFIG = {
     "warp": {
         "pkg": "com.cloudflare.onedotonedotonedotone", "name": "warp", "patch_source": "rushi",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/1dot1dot1dot1", "exclude": [],
-        "enable": ["Disable SSL Pinning"],
     },
     "inshot": {
         "pkg": "com.camerasideas.instashot", "name": "inshot", "patch_source": "hooman",
@@ -100,13 +103,12 @@ PROCESS_ORDER = [
 ]
 
 PATCH_SOURCES = {
-    "morphe": ("MorpheApp", "morphe-patches", "Morphe"),
-    "piko": ("crimera", "piko", "Piko"),
-    "adobo": ("jkennethcarino", "adobo", "Adobo"),
-    "rushi": ("rushiranpise", "morphe-patches", "Rushiranpise"),
-    "bufferk": ("bufferk", "morphe-patches", "Bufferk"),
-    "hoodles": ("hoo-dles", "morphe-patches", "hoo-dles"),
-    "tiktok": ("icysymmetra", "tiktok-patches-for-morphe", "TikTok Patches"),
-    "hooman": ("arandomhooman", "hoomans-morphe-patches", "Hooman's Patches"),
-    "jasonwu": ("jasonwu1994", "Gboard-patches", "Gboard Patches"),
+    "morphe": ("MorpheApp", "morphe-patches", "🟢 Morphe"),
+    "piko": ("crimera", "piko", "✖️ Piko"),
+    "adobo": ("jkennethcarino", "adobo", "🥘 Adobo"),
+    "rushi": ("rushiranpise", "morphe-patches", "⚡ Rushiranpise"),
+    "bufferk": ("bufferk", "morphe-patches", "🟣 Bufferk"),
+    "hoodles": ("hoo-dles", "morphe-patches", "🍃 hoo-dles"),
+    "tiktok": ("icysymmetra", "tiktok-patches-for-morphe", "🎵 TikTok Patches"),
+    "hooman": ("arandomhooman", "hoomans-morphe-patches", "🎬 Hooman's Patches"),
 }
