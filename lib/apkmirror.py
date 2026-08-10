@@ -471,12 +471,10 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
                     cooldown_len = min(15.0 * (2 ** (_challenge_hits - 1)), 120.0)
                     _cooldown_until = time.monotonic() + cooldown_len
                     print(
-                        f"Cloudflare challenge detected (confirm-page), cooling down {cooldown_len:.0f}s "
-                        f"before retrying (challenge #{_challenge_hits} this run)..."
+                        f"Cloudflare challenge detected (confirm-page), waiting {cooldown_len:.0f}s "
+                        f"for it to auto-resolve (challenge #{_challenge_hits} this run)..."
                     )
                     await asyncio.sleep(cooldown_len)
-                    await tab.reload()
-                    await _jitter_sleep(1.5)
                     continue
                 break
 
