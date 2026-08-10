@@ -49,11 +49,6 @@ APPS_CONFIG = {
         "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "adobo",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/google/4285F4",
         "exclude": [], "force_version": "17.7.7.932364120",
-        "enable": [
-            "Enable voice typing in incognito", "Enable key shape selection",
-            "Enable clipboard in incognito", "Enable access points menu redesign",
-            "Enable Undo feature", "Enable OCR feature", "Always-incognito mode",
-        ],
     },
     "speedtest": {
         "pkg": "org.zwanoo.android.speedtest", "name": "speedtest", "patch_source": "rushi",
