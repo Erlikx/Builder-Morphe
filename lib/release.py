@@ -22,7 +22,7 @@ def _assert_configured():
         raise RuntimeError("Missing GITHUB_REPOSITORY")
 
 
-async def create_new_release(tag: str, release_name: str, release_body: str = "") -> dict:
+async def create_new_release(tag: str, release_name: str, release_body: str = "", draft: bool = False) -> dict:
     print("Creating new release:", tag)
 
     async with httpx.AsyncClient(timeout=30) as client:
@@ -33,9 +33,9 @@ async def create_new_release(tag: str, release_name: str, release_body: str = ""
                 "tag_name": tag,
                 "name": release_name,
                 "body": release_body,
-                "draft": False,
+                "draft": draft,
                 "prerelease": False,
-                "make_latest": "true",
+                "make_latest": "false" if draft else "true",
             },
         )
         data = res.json()
@@ -46,18 +46,24 @@ async def create_new_release(tag: str, release_name: str, release_body: str = ""
     return data
 
 
-async def get_release_by_tag(tag: str) -> dict:
+async def publish_release(release_id: int) -> dict:
     async with httpx.AsyncClient(timeout=30) as client:
-        res = await client.get(
-            f"https://api.github.com/repos/{REPO}/releases/tags/{tag}",
+        res = await client.patch(
+            f"https://api.github.com/repos/{REPO}/releases/{release_id}",
             headers=HEADERS,
+            json={"draft": False, "make_latest": "true"},
         )
-        data = res.json()
+        return res.json()
 
-    if "id" not in data:
-        raise RuntimeError(f"Release '{tag}' not found: {data}")
 
-    return data
+async def get_release_by_tag(tag: str) -> dict:
+    releases = await list_releases()
+
+    for release in releases:
+        if release.get("tag_name") == tag:
+            return release
+
+    raise RuntimeError(f"Release '{tag}' not found")
 
 
 async def list_releases() -> list[dict]:
@@ -161,9 +167,9 @@ async def upload_with_replace(release: dict, file_path: str):
     return await _upload(release["upload_url"], file_path)
 
 
-async def ensure_release(tag: str, release_name: str, release_body: str) -> dict:
+async def ensure_release(tag: str, release_name: str, release_body: str, draft: bool = False) -> dict:
     _assert_configured()
-    return await create_new_release(tag, release_name, release_body)
+    return await create_new_release(tag, release_name, release_body, draft=draft)
 
 
 async def upload_patched_apk(release: dict, apk_path: str):
