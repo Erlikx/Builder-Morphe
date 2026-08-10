@@ -323,6 +323,71 @@ async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> s
     return await tab.evaluate(js)
 
 
+_DPI_TOKENS = {"ldpi", "mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi", "tvdpi", "nodpi", "anydpi"}
+_ARCH_TOKEN_MAP = {
+    "arm64-v8a": "arm64_v8a",
+    "armeabi-v7a": "armeabi_v7a",
+    "x86": "x86",
+    "x86_64": "x86_64",
+}
+
+
+def _strip_apkm_language_splits(apkm_path: Path, keep_arch: str) -> Path:
+    """Removes unneeded split_config.<lang>.apk entries from a downloaded .apkm
+    bundle, keeping only base.apk plus the splits for the target architecture
+    and screen densities. This reduces the number of modules morphe-desktop
+    has to merge, which lowers the chance of resource ID / string reconciliation
+    issues (e.g. unresolved @string/... labels) during the bundle merge step.
+    """
+    import zipfile
+
+    if apkm_path.suffix.lower() != ".apkm":
+        return apkm_path
+
+    keep_arch_token = _ARCH_TOKEN_MAP.get(keep_arch)
+    tmp_path = apkm_path.with_suffix(".apkm.tmp")
+
+    try:
+        with zipfile.ZipFile(apkm_path, "r") as src:
+            entries = src.namelist()
+            kept, dropped = [], []
+
+            for name in entries:
+                base_name = name.rsplit("/", 1)[-1]
+
+                if base_name == "base.apk" or not base_name.startswith("split_config."):
+                    kept.append(name)
+                    continue
+
+                config_token = base_name[len("split_config."):]
+                if config_token.endswith(".apk"):
+                    config_token = config_token[: -len(".apk")]
+                config_token = config_token.lower()
+
+                if config_token in _DPI_TOKENS:
+                    kept.append(name)
+                elif keep_arch_token and config_token == keep_arch_token:
+                    kept.append(name)
+                else:
+                    dropped.append(name)
+
+            if not dropped:
+                return apkm_path
+
+            with zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as dst:
+                for name in kept:
+                    dst.writestr(name, src.read(name))
+
+        tmp_path.replace(apkm_path)
+        print(f"Stripped {len(dropped)} language split(s) from bundle, kept {len(kept)} module(s)")
+    except Exception as e:
+        print(f"Could not strip language splits from bundle (will proceed as-is): {e}")
+        if tmp_path.exists():
+            tmp_path.unlink(missing_ok=True)
+
+    return apkm_path
+
+
 async def _wait_for_download(out_dir: Path, existing: set, timeout: float = 60.0):
     deadline = time.monotonic() + timeout
     last_sizes = {}
@@ -399,6 +464,20 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             print("Direct download did not start, waiting for confirm page...")
             await _jitter_sleep(1.5)
 
+            for confirm_attempt in range(4):
+                if await _is_challenge_page(tab):
+                    global _challenge_hits, _cooldown_until
+                    _challenge_hits += 1
+                    cooldown_len = min(15.0 * (2 ** (_challenge_hits - 1)), 120.0)
+                    _cooldown_until = time.monotonic() + cooldown_len
+                    print(
+                        f"Cloudflare challenge detected (confirm-page), waiting {cooldown_len:.0f}s "
+                        f"for it to auto-resolve (challenge #{_challenge_hits} this run)..."
+                    )
+                    await asyncio.sleep(cooldown_len)
+                    continue
+                break
+
             final_href = await tab.evaluate(
                 "(() => { const el = document.querySelector('#download-link'); return el ? el.getAttribute('href') : null; })()"
             )
@@ -420,6 +499,9 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             raise RuntimeError(f"Downloaded file too small ({size} bytes)")
 
         print("DONE:", downloaded, f"({size / 1024 / 1024:.2f} MB)")
+
+        downloaded = _strip_apkm_language_splits(downloaded, "arm64-v8a")
+
         return str(downloaded)
 
     except Exception:
