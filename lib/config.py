@@ -48,8 +48,7 @@ APPS_CONFIG = {
     "gboard": {
         "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "jasonwu",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/google/4285F4",
-        "exclude": ["Zhuyin Bottom Row Key Sizes", "Zhuyin Quick Traditional/Simplified Toggle", "Zhuyin Slide Input"], 
-        "force_version": "17.7.7.932364120",
+        "exclude": ["Zhuyin Bottom Row Key Sizes", "Zhuyin Quick Traditional/Simplified Toggle", "Zhuyin Slide Input"],
         
     },
     "speedtest": {
