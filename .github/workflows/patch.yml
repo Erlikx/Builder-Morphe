@@ -236,6 +236,8 @@ jobs:
     needs: finalize
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      actions: write
     steps:
       - name: Delete old workflow runs
         uses: Mattraks/delete-workflow-runs@b3018382ca039b53d238908238bd35d1fb14f8ee # v2.1.0
