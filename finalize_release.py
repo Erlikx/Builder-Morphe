@@ -23,12 +23,12 @@ def match_asset(file_name: str):
     base = file_name[:-4]
 
     try:
-        last_dash = base.rindex("-")
+        first_dash = base.index("-")
     except ValueError:
         return None
 
-    name_part = base[:last_dash]
-    version_part = base[last_dash + 1:]
+    name_part = base[:first_dash]
+    version_part = base[first_dash + 1:]
 
     normalized_name_part = _normalize(name_part)
 
