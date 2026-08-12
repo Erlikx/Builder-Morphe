@@ -83,16 +83,7 @@ APPS_CONFIG = {
     "google-photos": {
         "pkg": "com.google.android.apps.photos", "name": "google-photos", "patch_source": "rushi",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/googlephotos",
-        "force_version": "7.86.0.956040398",
-        "exclude": [],
-        "enable": [
-            "AMOLED dark theme",
-            "Change package name",
-            "Enable DCIM folders backup control",
-            "Fix DCIM folder classification",
-            "Spoof features",
-            "GmsCore support",
-        ],
+        "exclude": ["AMOLED dark theme", "Change package name", "Enable DCIM folders backup control", "Fix DCIM folder classification", "Spoof features", "GmsCore support"],
     },
 }
 
