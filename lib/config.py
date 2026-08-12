@@ -2,6 +2,7 @@ DISPLAY_NAMES = {
     "youtube": "YouTube",
     "youtube-music": "YT.Music",
     "reddit": "Reddit",
+    "reddit-adobo": "Reddit-Adobo",
     "twitter": "Twitter",
     "instagram": "Instagram",
     "gboard": "Gboard",
@@ -31,6 +32,10 @@ APPS_CONFIG = {
     },
     "reddit": {
         "pkg": "com.reddit.frontpage", "name": "reddit", "patch_source": "morphe",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/reddit/FF4500", "exclude": [],
+    },
+    "reddit-adobo": {
+        "pkg": "com.reddit.frontpage", "name": "reddit", "patch_source": "adobo",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/reddit/FF4500", "exclude": [],
     },
     "twitter": {
@@ -91,7 +96,7 @@ APPS_CONFIG = {
 }
 
 PROCESS_ORDER = [
-    "youtube", "youtube-music", "reddit", "twitter", "instagram",
+    "youtube", "youtube-music", "reddit", "reddit-adobo", "twitter", "instagram",
     "gboard", "speedtest", "brave",
     "proton-vpn", "tiktok", "warp", "inshot", "google-photos",
 ]
