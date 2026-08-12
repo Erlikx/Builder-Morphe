@@ -37,7 +37,8 @@ APPS_CONFIG = {
     "reddit-adobo": {
         "pkg": "com.reddit.frontpage", "name": "reddit", "patch_source": "adobo",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/reddit/FF4500",
-        "exclude": ["Change package name"],
+        "exclude": [],
+        "enable": ["Change package name"],
     },
     "twitter": {
         "pkg": "com.twitter.android", "name": "twitter", "patch_source": "piko",
@@ -83,7 +84,9 @@ APPS_CONFIG = {
     "google-photos": {
         "pkg": "com.google.android.apps.photos", "name": "google-photos", "patch_source": "rushi",
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/googlephotos",
-        "exclude": ["AMOLED dark theme", "Change package name", "Enable DCIM folders backup control", "Fix DCIM folder classification", "Spoof features", "GmsCore support"],
+        "force_version": "7.87.0.957333026",
+        "exclude": [],
+        "enable": ["AMOLED dark theme", "Change package name", "Enable DCIM folders backup control", "Fix DCIM folder classification", "Spoof features", "GmsCore support"],
     },
 }
 
