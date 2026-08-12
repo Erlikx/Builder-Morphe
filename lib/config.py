@@ -36,7 +36,8 @@ APPS_CONFIG = {
     },
     "reddit-adobo": {
         "pkg": "com.reddit.frontpage", "name": "reddit", "patch_source": "adobo",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/reddit/FF4500", "exclude": [],
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/reddit/FF4500",
+        "exclude": ["Change package name"],
     },
     "twitter": {
         "pkg": "com.twitter.android", "name": "twitter", "patch_source": "piko",
