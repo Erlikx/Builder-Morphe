@@ -69,6 +69,7 @@ jobs:
           - youtube
           - youtube-music
           - reddit
+          - reddit-adobo
           - twitter
           - instagram
           - gboard
