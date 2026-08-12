@@ -1,6 +1,5 @@
 import asyncio
 import os
-import re
 from pathlib import Path
 
 from lib.github import download_latest_github_asset
@@ -8,10 +7,6 @@ from lib.release import create_new_release, upload_patched_apk, upload_microg_on
 from lib.config import APPS_CONFIG, DISPLAY_NAMES, PATCH_SOURCES
 
 NAME_TO_KEY = {v: k for k, v in DISPLAY_NAMES.items()}
-
-
-def _normalize(text: str) -> str:
-    return re.sub(r"[ ._-]+", "", text).lower()
 
 
 def match_asset(file_name: str):
@@ -22,18 +17,13 @@ def match_asset(file_name: str):
 
     base = file_name[:-4]
 
-    try:
-        first_dash = base.index("-")
-    except ValueError:
-        return None
-
-    name_part = base[:first_dash]
-    version_part = base[first_dash + 1:]
-
-    normalized_name_part = _normalize(name_part)
-
-    for display_name, app_key in NAME_TO_KEY.items():
-        if _normalize(display_name) == normalized_name_part:
+    # Match against the longest display names first so "Reddit-Adobo-1.2.3"
+    # isn't mistakenly matched as "Reddit" with version "Adobo-1.2.3"
+    # (some display names, like "Reddit-Adobo", contain a hyphen themselves).
+    for display_name, app_key in sorted(NAME_TO_KEY.items(), key=lambda kv: -len(kv[0])):
+        prefix = display_name + "-"
+        if base.lower().startswith(prefix.lower()):
+            version_part = base[len(prefix):]
             return app_key, display_name, version_part
 
     return None
