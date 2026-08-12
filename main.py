@@ -73,7 +73,7 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
     if not Path(patched_apk).exists():
         return None
 
-    display_name = DISPLAY_NAMES.get(config["name"], config["name"])
+    display_name = DISPLAY_NAMES.get(app_key, config["name"])
     final_name = f"{display_name}-{selected_version}.apk"
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     final_path = DIST_DIR / final_name
