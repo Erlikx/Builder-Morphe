@@ -9,17 +9,32 @@ APP_TAGS = {
 }
 
 # Apps whose developer publishes APK releases directly on their own repo.
-# These are fetched from the developer's own "latest" release instead of the
+# These are fetched from the developer's own release instead of the
 # fuckpdf/Depo mirror, since that's the trustworthy source verify.py pins
 # signatures against.
-# Format: app_name -> (owner, repo, asset_name_hint)
+# Format: app_name -> (owner, repo, asset_name_hint, tag_template)
 # asset_name_hint is a substring (case-insensitive) used to pick the right
 # asset when a single release ships multiple APK variants (e.g. a GitHub
 # build and a Play Store build side by side).
+# tag_template turns the *compatible* version the patcher reports (via
+# `list-versions`) into this repo's release-tag naming, e.g. "107.2.1" ->
+# "build107.2.1". This matters: patch bundles pin specific app versions, so
+# blindly grabbing the newest release can be newer than what the patch
+# supports and fail with "Applying 0 patches".
 DIRECT_REPOS = {
-    "inure-github": ("Hamza417", "Inure", "github"),
-    "inure-play": ("Hamza417", "Inure", "play"),
+    "inure-github": ("Hamza417", "Inure", "github", "build{version}"),
+    "inure-play": ("Hamza417", "Inure", "play", "build{version}"),
 }
+
+
+def _build_tag(tag_template: str, version: str) -> str:
+    # Some patchers may already report the version with the repo's own
+    # tag prefix (e.g. "build107.2.1") instead of a bare version number
+    # (e.g. "107.2.1"). Avoid double-prefixing in that case.
+    prefix = tag_template.split("{version}")[0]
+    if prefix and version.startswith(prefix):
+        return version
+    return tag_template.format(version=version)
 
 
 def _pick_apk_asset(assets: list[dict], name_hint: str | None = None) -> dict | None:
@@ -65,18 +80,34 @@ async def _download_asset(client: httpx.AsyncClient, asset: dict) -> str:
 async def download_apk(version: str, app_name: str, force_build: str | None = None) -> str:
     async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
         if app_name in DIRECT_REPOS:
-            owner, repo, name_hint = DIRECT_REPOS[app_name]
-            print(f"\nFetching info from GitHub: {app_name.upper()} ({owner}/{repo}, latest release)")
+            owner, repo, name_hint, tag_template = DIRECT_REPOS[app_name]
 
-            api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
-            res = await client.get(api_url, headers={"User-Agent": "Mozilla/5.0 (Python)"})
-            if res.status_code >= 400:
-                raise RuntimeError(f"GitHub API error: {res.status_code}")
+            release_data = None
+            wanted_tag = None
 
-            release_data = res.json()
+            if version and version != "latest":
+                wanted_tag = _build_tag(tag_template, version)
+                print(f"\nFetching info from GitHub: {app_name.upper()} ({owner}/{repo}, tag: {wanted_tag})")
+
+                api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{wanted_tag}"
+                res = await client.get(api_url, headers={"User-Agent": "Mozilla/5.0 (Python)"})
+                if res.status_code < 400:
+                    release_data = res.json()
+                else:
+                    print(f"Tag \"{wanted_tag}\" not found ({res.status_code}), falling back to latest release.")
+
+            if release_data is None:
+                print(f"\nFetching info from GitHub: {app_name.upper()} ({owner}/{repo}, latest release)")
+                api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+                res = await client.get(api_url, headers={"User-Agent": "Mozilla/5.0 (Python)"})
+                if res.status_code >= 400:
+                    raise RuntimeError(f"GitHub API error: {res.status_code}")
+                release_data = res.json()
+
             asset = _pick_apk_asset(release_data.get("assets") or [], name_hint)
             if not asset:
-                raise RuntimeError(f'No .apk or .apkm file found in latest release of "{owner}/{repo}".')
+                where = wanted_tag or "latest release"
+                raise RuntimeError(f'No .apk or .apkm file found in "{owner}/{repo}" ({where}).')
 
             return await _download_asset(client, asset)
 
@@ -102,7 +133,7 @@ async def download_apk(version: str, app_name: str, force_build: str | None = No
 
 async def get_latest_listing(app_name: str) -> dict:
     if app_name in DIRECT_REPOS:
-        owner, repo, _name_hint = DIRECT_REPOS[app_name]
+        owner, repo, _name_hint, _tag_template = DIRECT_REPOS[app_name]
         return {"version": "latest", "href": f"https://github.com/{owner}/{repo}/releases/latest"}
 
     tag = APP_TAGS.get(app_name)
