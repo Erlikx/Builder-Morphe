@@ -13,6 +13,8 @@ DISPLAY_NAMES = {
     "warp": "1.1.1.1",
     "inshot": "InShot",
     "google-photos": "Google Photos",
+    "inure-github": "inure-Github",
+    "inure-play": "inure-PlayStore",
 }
 
 APKMIRROR_APPS = [
@@ -88,12 +90,22 @@ APPS_CONFIG = {
         "exclude": [],
         "enable": ["AMOLED dark theme", "Change package name", "Enable DCIM folders backup control", "Fix DCIM folder classification", "Spoof features", "GmsCore support"],
     },
+    "inure-github": {
+        "pkg": "app.simple.inure", "name": "inure-github", "patch_source": "rushi",
+        "arch": "arm64-v8a", "icon": "https://github.com/Hamza417.png",
+        "exclude": [],
+    },
+    "inure-play": {
+        "pkg": "app.simple.inure.play", "name": "inure-play", "patch_source": "rushi",
+        "arch": "arm64-v8a", "icon": "https://github.com/Hamza417.png",
+        "exclude": [],
+    },
 }
 
 PROCESS_ORDER = [
     "youtube", "youtube-music", "reddit", "reddit-adobo", "twitter", "instagram",
     "gboard", "speedtest", "brave",
-    "proton-vpn", "tiktok", "warp", "inshot", "google-photos",
+    "proton-vpn", "tiktok", "warp", "inshot", "google-photos", "inure-github", "inure-play",
 ]
 
 PATCH_SOURCES = {
