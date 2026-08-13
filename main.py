@@ -1,130 +1,155 @@
-DISPLAY_NAMES = {
-    "youtube": "YouTube",
-    "youtube-music": "YT.Music",
-    "reddit": "Reddit",
-    "reddit-adobo": "Reddit-Adobo",
-    "twitter": "Twitter",
-    "instagram": "Instagram",
-    "gboard": "Gboard",
-    "speedtest": "Speedtest",
-    "brave": "Brave",
-    "proton-vpn": "Proton VPN",
-    "tiktok": "TikTok",
-    "warp": "1.1.1.1",
-    "inshot": "InShot",
-    "google-photos": "Google Photos",
-    "inure-github": "inure-Github",
-    "inure-play": "inure-PlayStore",
-}
+import asyncio
+import os
+import random
+import subprocess
+import shutil
+from pathlib import Path
 
-APKMIRROR_APPS = [
-    "youtube", "youtube-music", "reddit", "twitter",
-    "gboard", "brave",
-    "proton-vpn", "tiktok", "warp", "inshot", "google-photos",
-]
+from lib.github import download_latest_github_asset
+from lib.versions import extract_youtube_versions, pick_latest_version
+from lib.patcher import patch_apk
+from lib.verify import verify_apk_signature
+from lib import apkmirror
+from lib import githubdl
 
-APPS_CONFIG = {
-    "youtube": {
-        "pkg": "com.google.android.youtube", "name": "youtube", "patch_source": "morphe",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/youtube/FF0000", "exclude": [],
-    },
-    "youtube-music": {
-        "pkg": "com.google.android.apps.youtube.music", "name": "youtube-music", "patch_source": "morphe",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/youtubemusic/FF0000", "exclude": [],
-    },
-    "reddit": {
-        "pkg": "com.reddit.frontpage", "name": "reddit", "patch_source": "morphe",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/reddit/FF4500", "exclude": [],
-    },
-    "reddit-adobo": {
-        "pkg": "com.reddit.frontpage", "name": "reddit", "patch_source": "adobo",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/reddit/FF4500",
-        "exclude": [],
-        "enable": ["Change package name"],
-    },
-    "twitter": {
-        "pkg": "com.twitter.android", "name": "twitter", "patch_source": "piko",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/x/000000",
-        "exclude": ["Dynamic color"],
-        "enable": ["Bring back twitter", "Disunify xchat system", "Export all activities"],
-    },
-    "instagram": {
-        "pkg": "com.instagram.android", "name": "instagram", "patch_source": "piko",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/instagram/E4405F",
-    },
-    "gboard": {
-        "pkg": "com.google.android.inputmethod.latin", "name": "gboard", "patch_source": "jasonwu",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/google/4285F4",
-        "exclude": ["Zhuyin Bottom Row Key Sizes", "Zhuyin Quick Traditional/Simplified Toggle", "Zhuyin Slide Input"],
-        
-    },
-    "speedtest": {
-        "pkg": "org.zwanoo.android.speedtest", "name": "speedtest", "patch_source": "rushi",
-        "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=speedtest.net",
-        "exclude": [], "force_version": "7.0.7",
-    },
-    "brave": {
-        "pkg": "com.brave.browser", "name": "brave", "patch_source": "bufferk",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/brave/FB542B", "exclude": [],
-    },
-    "proton-vpn": {
-        "pkg": "ch.protonvpn.android", "name": "proton-vpn", "patch_source": "hoodles",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/protonvpn", "exclude": [],
-    },
-    "tiktok": {
-        "pkg": "com.zhiliaoapp.musically", "name": "tiktok", "patch_source": "tiktok",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/tiktok", "exclude": [],
-    },
-    "warp": {
-        "pkg": "com.cloudflare.onedotonedotonedotone", "name": "warp", "patch_source": "rushi",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/1dot1dot1dot1", "exclude": [],
-    },
-    "inshot": {
-        "pkg": "com.camerasideas.instashot", "name": "inshot", "patch_source": "hooman",
-        "arch": "arm64-v8a", "icon": "https://www.google.com/s2/favicons?sz=128&domain=inshot.com", "exclude": [],
-    },
-    "google-photos": {
-        "pkg": "com.google.android.apps.photos", "name": "google-photos", "patch_source": "rushi",
-        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/googlephotos",
-        "force_version": "7.87.0.957333026",
-        "exclude": [],
-        "enable": ["AMOLED dark theme", "Change package name", "Enable DCIM folders backup control", "Fix DCIM folder classification", "Spoof features", "GmsCore support"],
-    },
-    "inure-github": {
-        # GitHub build of Inure App Manager (app.simple.inure), patched via
-        # rushiranpise/morphe-patches's "Inure App Manager (GitHub)" bundle,
-        # which bypasses the trial period and companion-app verification.
-        # Downloaded directly from the "app-github-release.apk" asset on
-        # Hamza417/Inure's latest GitHub release.
-        "pkg": "app.simple.inure", "name": "inure-github", "patch_source": "rushi",
-        "arch": "arm64-v8a", "icon": "https://github.com/Hamza417.png",
-        "exclude": [],
-    },
-    "inure-play": {
-        # Play Store build of Inure App Manager (app.simple.inure.play),
-        # patched via rushiranpise/morphe-patches's "Inure App Manager" bundle
-        # ("Unlock Pro Features"). Downloaded directly from the
-        # "app-play-release.apk" asset on the same GitHub release.
-        "pkg": "app.simple.inure.play", "name": "inure-play", "patch_source": "rushi",
-        "arch": "arm64-v8a", "icon": "https://github.com/Hamza417.png",
-        "exclude": [],
-    },
-}
+DIST_DIR = Path.cwd() / "dist"
 
-PROCESS_ORDER = [
-    "youtube", "youtube-music", "reddit", "reddit-adobo", "twitter", "instagram",
-    "gboard", "speedtest", "brave",
-    "proton-vpn", "tiktok", "warp", "inshot", "google-photos", "inure-github", "inure-play",
-]
+from lib.config import (
+    DISPLAY_NAMES,
+    APKMIRROR_APPS,
+    APPS_CONFIG,
+    PROCESS_ORDER,
+    PATCH_SOURCES,
+)
 
-PATCH_SOURCES = {
-    "morphe": ("MorpheApp", "morphe-patches", "🟢 Morphe"),
-    "piko": ("crimera", "piko", "✖️ Piko"),
-    "adobo": ("jkennethcarino", "adobo", "🥘 Adobo"),
-    "rushi": ("rushiranpise", "morphe-patches", "⚡ Rushiranpise"),
-    "bufferk": ("bufferk", "morphe-patches", "🟣 Bufferk"),
-    "hoodles": ("hoo-dles", "morphe-patches", "🍃 hoo-dles"),
-    "tiktok": ("icysymmetra", "tiktok-patches-for-morphe", "🎵 TikTok Patches"),
-    "hooman": ("arandomhooman", "hoomans-morphe-patches", "🎬 Hooman's Patches"),
-    "jasonwu": ("jasonwu1994", "Gboard-patches", "⌨️ JasonWu Gboard"),
-}
+
+async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
+    config = APPS_CONFIG[app_key]
+    print(f"\nPROCESSING: {config['name'].upper()}")
+
+    is_apkmirror_app = config["name"] in APKMIRROR_APPS
+
+    selected_version = config.get("force_version")
+
+    if not selected_version:
+        try:
+            result = subprocess.run(
+                ["java", "-jar", desktop, "list-versions", "-f", config["pkg"],
+                 "--patches", patches, "--include-experimental"],
+                capture_output=True, text=True,
+            )
+            output = (result.stdout or "") + (result.stderr or "")
+            versions = extract_youtube_versions(output)
+            if versions:
+                selected_version = pick_latest_version(versions)
+        except Exception as e:
+            print(f"Could not fetch version list: {e}")
+
+    if not selected_version:
+        if not is_apkmirror_app:
+            selected_version = "latest"
+        else:
+            latest = await apkmirror.get_latest_listing(config["name"])
+            if latest and latest.get("version"):
+                selected_version = latest["version"]
+
+    if not selected_version:
+        raise RuntimeError("Could not determine a suitable version number.")
+
+    if is_apkmirror_app:
+        apk_path = await apkmirror.download_apk(selected_version, config["name"], config.get("force_build"))
+    else:
+        apk_path = await githubdl.download_apk(selected_version, config["name"], config.get("force_build"))
+
+    verify_apk_signature(apk_path, config["name"])
+
+    patched_apk = patch_apk(
+        desktop, patches, apk_path,
+        exclude=config.get("exclude"),
+        enable=config.get("enable"),
+        arch=config["arch"],
+    )
+
+    if not Path(patched_apk).exists():
+        return None
+
+    display_name = DISPLAY_NAMES.get(app_key, config["name"])
+    final_name = f"{display_name}-{selected_version}.apk"
+    DIST_DIR.mkdir(parents=True, exist_ok=True)
+    final_path = DIST_DIR / final_name
+
+    shutil.copyfile(patched_apk, final_path)
+
+    return {
+        "app_name": config["name"],
+        "display_name": display_name,
+        "icon": config["icon"],
+        "patch_source": config["patch_source"],
+        "name": final_name,
+        "path": str(final_path),
+        "version": selected_version,
+    }
+
+
+async def main():
+    try:
+        desktop_obj = await download_latest_github_asset(
+            owner="MorpheApp", repo="morphe-desktop",
+            prerelease=True,
+            match=lambda n: "desktop" in n and n.endswith(".jar"),
+        )
+        desktop = desktop_obj["name"]
+
+        target_app = os.environ.get("TARGET_APP", "all")
+        apps_to_process = PROCESS_ORDER if target_app == "all" else [target_app]
+
+        patches_pool: dict[str, str | None] = {k: None for k in PATCH_SOURCES}
+
+        for key, (owner, repo, _label) in PATCH_SOURCES.items():
+            needed = any(APPS_CONFIG[k]["patch_source"] == key for k in apps_to_process)
+            if needed:
+                asset = await download_latest_github_asset(
+                    owner=owner, repo=repo, prerelease=True,
+                    match=lambda n: n.endswith(".mpp"),
+                )
+                patches_pool[key] = asset["name"]
+
+        patched_apks_list = []
+        failed_apps = []
+
+        for app_key in apps_to_process:
+            try:
+                result = await process_app(app_key, desktop, patches_pool[APPS_CONFIG[app_key]["patch_source"]])
+                if result:
+                    patched_apks_list.append(result)
+                else:
+                    failed_apps.append(app_key)
+            except Exception as err:
+                print(f"{app_key.upper()} failed, skipping: {err}")
+                failed_apps.append(app_key)
+
+            if APPS_CONFIG[app_key]["name"] in APKMIRROR_APPS and app_key != apps_to_process[-1]:
+                delay = random.uniform(6.0, 14.0)
+                print(f"Waiting {delay:.0f}s before the next app (to reduce APKMirror request rate)...")
+                await asyncio.sleep(delay)
+
+        if patched_apks_list:
+            names = ", ".join(apk["name"] for apk in patched_apks_list)
+            print(f"\nPatched APK(s) ready in {DIST_DIR}: {names}")
+            print("These will be picked up as a workflow artifact and published in the finalize job.")
+
+        if failed_apps:
+            print(f"\nFailed app(s): {', '.join(failed_apps)}")
+            raise SystemExit(1)
+
+    except SystemExit:
+        raise
+    except Exception as err:
+        print("Fatal error:", err)
+        raise SystemExit(1)
+    finally:
+        await apkmirror.close_browser()
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
