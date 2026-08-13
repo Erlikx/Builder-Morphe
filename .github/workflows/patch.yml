@@ -80,6 +80,8 @@ jobs:
           - warp
           - inshot
           - google-photos
+          - inure-github
+          - inure-play
 
     steps:
       - name: Checkout
