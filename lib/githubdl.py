@@ -2,6 +2,8 @@ from pathlib import Path
 
 import httpx
 
+from . import log
+
 # Apps mirrored via the fuckpdf/Depo release-tag convention.
 APP_TAGS = {
     "instagram": "instagram",
@@ -54,13 +56,13 @@ def _pick_apk_asset(assets: list[dict], name_hint: str | None = None) -> dict | 
 
 async def _download_asset(client: httpx.AsyncClient, asset: dict) -> str:
     size_mb = asset["size"] / (1024 * 1024)
-    print(f"Found file to download: {asset['name']} ({size_mb:.2f} MB)")
+    log.download(f"Found file to download: {asset['name']} ({size_mb:.2f} MB)")
 
     out_dir = Path(__file__).resolve().parent.parent / "downloads"
     out_dir.mkdir(parents=True, exist_ok=True)
     file_path = out_dir / asset["name"]
 
-    print("Downloading...")
+    log.download("Downloading...")
 
     async with client.stream("GET", asset["browser_download_url"]) as file_res:
         if file_res.status_code >= 400:
@@ -73,7 +75,7 @@ async def _download_asset(client: httpx.AsyncClient, asset: dict) -> str:
     if downloaded_size < 1024:
         raise RuntimeError(f"Downloaded file is too small ({downloaded_size} bytes) - likely an error page")
 
-    print(f"Done: {file_path}")
+    log.success(f"Done: {file_path}")
     return str(file_path)
 
 
@@ -87,17 +89,17 @@ async def download_apk(version: str, app_name: str, force_build: str | None = No
 
             if version and version != "latest":
                 wanted_tag = _build_tag(tag_template, version)
-                print(f"\nFetching info from GitHub: {app_name.upper()} ({owner}/{repo}, tag: {wanted_tag})")
+                log.step(f"Fetching info from GitHub: {app_name.upper()} ({owner}/{repo}, tag: {wanted_tag})")
 
                 api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/tags/{wanted_tag}"
                 res = await client.get(api_url, headers={"User-Agent": "Mozilla/5.0 (Python)"})
                 if res.status_code < 400:
                     release_data = res.json()
                 else:
-                    print(f"Tag \"{wanted_tag}\" not found ({res.status_code}), falling back to latest release.")
+                    log.warn(f"Tag \"{wanted_tag}\" not found ({res.status_code}), falling back to latest release.")
 
             if release_data is None:
-                print(f"\nFetching info from GitHub: {app_name.upper()} ({owner}/{repo}, latest release)")
+                log.step(f"Fetching info from GitHub: {app_name.upper()} ({owner}/{repo}, latest release)")
                 api_url = f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
                 res = await client.get(api_url, headers={"User-Agent": "Mozilla/5.0 (Python)"})
                 if res.status_code >= 400:
@@ -115,7 +117,7 @@ async def download_apk(version: str, app_name: str, force_build: str | None = No
         if not tag:
             raise RuntimeError(f'No GitHub tag for "{app_name}".')
 
-        print(f"\nFetching info from GitHub: {app_name.upper()} (Tag: {tag})")
+        log.step(f"Fetching info from GitHub: {app_name.upper()} (Tag: {tag})")
 
         api_url = f"https://api.github.com/repos/fuckpdf/Depo/releases/tags/{tag}"
         res = await client.get(api_url, headers={"User-Agent": "Mozilla/5.0 (Python)"})
