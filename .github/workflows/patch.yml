@@ -1,4 +1,4 @@
-rname: Patch Morphe (Python)
+name: Patch Morphe (Python)
 
 on:
   workflow_dispatch:
