@@ -9,6 +9,7 @@ import nodriver as uc
 from nodriver import cdp
 
 from .versions import to_apkmirror_version
+from . import log
 
 APP_SITES = {
     "youtube": {"org": "google-inc", "slug": "youtube"},
@@ -89,7 +90,7 @@ async def get_browser():
         except Exception as e:
             last_err = e
             delay = base_delay * (attempt + 1)
-            print(f"Could not start browser (attempt {attempt + 1}/{retries}): {e} - retrying in {delay:.0f}s")
+            log.warn(f"Could not start browser (attempt {attempt + 1}/{retries}): {e} - retrying in {delay:.0f}s")
             await asyncio.sleep(delay)
 
     raise last_err
@@ -114,7 +115,7 @@ async def _enable_downloads(tab, out_dir: Path):
         await tab.send(cdp.browser.set_download_behavior(behavior="allow", download_path=str(out_dir)))
         _downloads_ready = True
     except Exception as e:
-        print(f"set_download_behavior failed (will still try to proceed): {e}")
+        log.warn(f"set_download_behavior failed (will still try to proceed): {e}")
 
 
 async def _is_challenge_page(tab) -> bool:
@@ -133,16 +134,16 @@ async def _save_diagnostic_screenshot(tab, label: str):
         ts = int(time.time())
         path = DIAGNOSTICS_DIR / f"{label}-{ts}.png"
         await tab.save_screenshot(str(path))
-        print(f"Diagnostic screenshot saved: {path}")
+        log.info(f"Diagnostic screenshot saved: {path}")
     except Exception as e:
-        print(f"Could not capture screenshot: {e}")
+        log.warn(f"Could not capture screenshot: {e}")
 
 
 async def _apply_global_cooldown():
     now = time.monotonic()
     if now < _cooldown_until:
         remaining = _cooldown_until - now
-        print(f"Global cooldown active, waiting {remaining:.0f}s...")
+        log.wait(f"Global cooldown active, waiting {remaining:.0f}s...")
         await asyncio.sleep(remaining)
 
 
@@ -161,14 +162,14 @@ async def _goto(tab, url: str, wait: float = 1.2, challenge_retries: int = 3, la
             _cooldown_until = time.monotonic() + cooldown_len
 
             if attempt < challenge_retries:
-                print(
+                log.warn(
                     f"Cloudflare challenge detected ({label}), cooling down {cooldown_len:.0f}s "
                     f"before retrying (challenge #{_challenge_hits} this run)..."
                 )
                 await asyncio.sleep(cooldown_len)
                 continue
 
-            print(f"Cloudflare challenge still present ({label}), proceeding anyway...")
+            log.warn(f"Cloudflare challenge still present ({label}), proceeding anyway...")
             await _save_diagnostic_screenshot(tab, f"cloudflare-{label}")
 
         return
@@ -216,11 +217,11 @@ async def _resolve_list_url(tab, app_config: dict, version: str) -> str:
     ]
 
     for candidate in candidates:
-        print("TRY:", candidate)
+        log.search(f"TRY: {candidate}")
         if await _page_exists(tab, candidate):
             return candidate
 
-    print("No direct match, scanning app listing page...")
+    log.search("No direct match, scanning app listing page...")
     listing_url = f"{folder_url}/"
 
     slug_part = f"-{version_slug}-"
@@ -266,15 +267,15 @@ async def _dump_variant_rows_for_debug(tab):
     try:
         raw = await tab.evaluate(js)
         info = json.loads(raw) if isinstance(raw, str) else raw
-        print(
+        log.info(
             f"Debug: page has {info.get('rowCount', '?')} .table-row elements "
             f"({info.get('scopedRowCount', '?')} of them inside the real .variants-table), "
             f"is404: {info.get('is404', '?')}"
         )
         for i, row in enumerate(info.get("sample", [])):
-            print(f"   [{i}] cells={row.get('cellCount')} name={row.get('name')!r} arch={row.get('arch')!r} dpi={row.get('dpi')!r}")
+            log.info(f"   [{i}] cells={row.get('cellCount')} name={row.get('name')!r} arch={row.get('arch')!r} dpi={row.get('dpi')!r}")
     except Exception as e:
-        print(f"Could not produce debug dump: {e}")
+        log.warn(f"Could not produce debug dump: {e}")
 
 
 async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> str | None:
@@ -368,7 +369,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
         await _enable_downloads(tab, out_dir)
 
         list_url = await _resolve_list_url(tab, app_config, version)
-        print("LIST:", list_url)
+        log.info(f"LIST: {list_url}")
 
         variant_url = None
         for attempt in range(4):
@@ -376,7 +377,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             variant_url = await _extract_variant_url(tab, force_build, app_name)
             if variant_url:
                 break
-            print(f"No matching row found on page, retrying ({attempt + 1}/4)...")
+            log.warn(f"No matching row found on page, retrying ({attempt + 1}/4)...")
 
         if not variant_url:
             await _dump_variant_rows_for_debug(tab)
@@ -385,19 +386,19 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
         if variant_url.startswith("/"):
             variant_url = "https://www.apkmirror.com" + variant_url
 
-        print("VARIANT:", variant_url)
+        log.info(f"VARIANT: {variant_url}")
 
         await _goto(tab, variant_url, wait=1.2, label="variant-page")
 
         existing_before = {f.name for f in out_dir.iterdir() if f.is_file()}
 
-        print("Clicking main download button...")
+        log.browser("Clicking main download button...")
         await tab.evaluate("document.querySelector('a.downloadButton')?.click()")
 
         downloaded = await _wait_for_download(out_dir, existing_before, timeout=20)
 
         if not downloaded:
-            print("Direct download did not start, waiting for confirm page...")
+            log.warn("Direct download did not start, waiting for confirm page...")
             await _jitter_sleep(1.5)
 
             final_href = await tab.evaluate(
@@ -405,14 +406,14 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             )
 
             if final_href:
-                print("Clicking final download link...")
+                log.browser("Clicking final download link...")
                 await tab.evaluate("document.querySelector('#download-link')?.click()")
                 downloaded = await _wait_for_download(out_dir, existing_before, timeout=60)
 
         if not downloaded:
             current_url = await tab.evaluate("location.href")
             current_title = await tab.evaluate("document.title")
-            print(f"Download did not start. Current page: {current_title!r} @ {current_url}")
+            log.error(f"Download did not start. Current page: {current_title!r} @ {current_url}")
             await _save_diagnostic_screenshot(tab, f"no-download-{app_name}")
             raise RuntimeError("Download did not start / file not detected (CDP download).")
 
@@ -420,7 +421,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
         if size < 1024:
             raise RuntimeError(f"Downloaded file too small ({size} bytes)")
 
-        print("DONE:", downloaded, f"({size / 1024 / 1024:.2f} MB)")
+        log.success(f"DONE: {downloaded} ({size / 1024 / 1024:.2f} MB)")
         return str(downloaded)
 
     except Exception:
@@ -448,7 +449,7 @@ async def get_latest_listing(app_name: str) -> dict | None:
 
     try:
         listing_url = f"https://www.apkmirror.com/apk/{app_config['org']}/{app_config['slug']}/"
-        print("LISTING:", listing_url)
+        log.info(f"LISTING: {listing_url}")
 
         js = """
         (() => {
@@ -468,11 +469,11 @@ async def get_latest_listing(app_name: str) -> dict | None:
             try:
                 candidates = json.loads(raw) if isinstance(raw, str) else (raw or [])
             except Exception as e:
-                print(f"Could not parse listing data as JSON: {e}")
+                log.warn(f"Could not parse listing data as JSON: {e}")
                 candidates = []
             if candidates:
                 break
-            print(f"No link found on listing page, retrying ({attempt + 1}/4)...")
+            log.warn(f"No link found on listing page, retrying ({attempt + 1}/4)...")
 
         if not candidates:
             await _save_diagnostic_screenshot(tab, f"no-listing-{app_name}")
