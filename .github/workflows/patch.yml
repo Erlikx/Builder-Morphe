@@ -91,6 +91,9 @@ jobs:
           ref: main
           persist-credentials: true
 
+      - name: Show runner IP
+        run: curl -s https://api.ipify.org
+
       - name: Setup Python
         uses: actions/setup-python@v7
         with:
