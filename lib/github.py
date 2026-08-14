@@ -6,6 +6,8 @@ from typing import Callable
 
 import httpx
 
+from . import log
+
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 
 
@@ -22,7 +24,7 @@ async def with_retry(fn: Callable, retries: int = 5, base_delay_ms: int = 1000):
         except Exception as err:
             last_err = err
             delay_ms = _jitter(base_delay_ms * (2 ** i))
-            print(f"Retry {i + 1}/{retries} in {delay_ms}ms - {err}")
+            log.warn(f"Retry {i + 1}/{retries} in {delay_ms}ms - {err}")
             await asyncio.sleep(delay_ms / 1000)
 
     raise last_err
@@ -67,7 +69,7 @@ async def _download_file(url: str, output_path: Path, expected_size: int | None 
     headers = {"User-Agent": "python", "Accept": "*/*"}
     if downloaded > 0:
         headers["Range"] = f"bytes={downloaded}-"
-        print(f"Resuming at {downloaded} bytes")
+        log.download(f"Resuming at {downloaded} bytes")
 
     mode = "ab" if downloaded > 0 else "wb"
 
@@ -92,7 +94,7 @@ async def _download_file(url: str, output_path: Path, expected_size: int | None 
 async def download_latest_github_asset(
     owner: str, repo: str, match: Callable[[str], bool], prerelease: bool = False
 ) -> dict:
-    print(f"\nFetching release: {owner}/{repo}")
+    log.step(f"Fetching release: {owner}/{repo}")
 
     release = await fetch_latest_release(owner, repo, prerelease)
 
@@ -104,17 +106,17 @@ async def download_latest_github_asset(
     if not asset:
         raise RuntimeError("Matching asset not found")
 
-    print("Selected:", asset["name"])
+    log.info(f"Selected: {asset['name']}")
 
     out_path = Path(asset["name"])
 
     if out_path.exists():
         size = out_path.stat().st_size
         if size < 1024:
-            print("Removing corrupt cache")
+            log.warn("Removing corrupt cache")
             out_path.unlink()
         else:
-            print("Using cached file:", asset["name"])
+            log.info(f"Using cached file: {asset['name']}")
             return {
                 "name": asset["name"],
                 "body": release.get("body") or "",
@@ -126,7 +128,7 @@ async def download_latest_github_asset(
 
     await with_retry(_do)
 
-    print("Done:", asset["name"])
+    log.success(f"Done: {asset['name']}")
 
     return {
         "name": asset["name"],
