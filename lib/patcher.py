@@ -3,6 +3,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from . import log
+
 
 def patch_apk(
     desktop: str,
@@ -12,7 +14,7 @@ def patch_apk(
     enable: list[str] | None = None,
     arch: str = "arm64-v8a",
 ) -> str:
-    print(f"\nPatching APK & stripping unused architectures ({arch} only)...\n")
+    log.patch(f"Patching APK & stripping unused architectures ({arch} only)...")
 
     ks_path = os.environ.get("KS_PATH")
     ks_password = os.environ.get("KS_PASSWORD")
@@ -25,7 +27,7 @@ def patch_apk(
         cmd += ["--striplibs", arch]
 
     if ks_path and Path(ks_path).exists() and ks_password and ks_alias and key_password:
-        print("Custom keystore detected! Signing with your private key...")
+        log.lock("Custom keystore detected! Signing with your private key...")
         cmd += [
             "--keystore", ks_path,
             "--keystore-password", ks_password,
@@ -33,7 +35,7 @@ def patch_apk(
             "--keystore-entry-password", key_password,
         ]
     else:
-        print("Custom keystore credentials missing or file not found. Falling back to default Morphe testkey.")
+        log.warn("Custom keystore credentials missing or file not found. Falling back to default Morphe testkey.")
 
     for p in (exclude or []):
         cmd += ["--disable", p]
@@ -43,7 +45,7 @@ def patch_apk(
 
     cmd.append(apk)
 
-    print(f"EXECUTING COMMAND: {' '.join(cmd)}")
+    log.step(f"Executing command: {' '.join(cmd)}")
 
     process = subprocess.Popen(
         cmd,
@@ -55,7 +57,7 @@ def patch_apk(
 
     output_lines = []
     for line in process.stdout:
-        print(line, end="", flush=True)
+        print(log.colorize_patch_line(line), end="", flush=True)
         output_lines.append(line)
 
     process.wait()
@@ -76,7 +78,7 @@ def patch_apk(
     if not Path(patched_apk).exists():
         raise RuntimeError(f"Patched APK does not exist:\n{patched_apk}")
 
-    print("\nPatch done")
-    print("Output:", patched_apk)
+    log.success("Patch done")
+    log.saved(f"Output: {patched_apk}")
 
     return patched_apk
