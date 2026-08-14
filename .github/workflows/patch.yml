@@ -1,4 +1,4 @@
-name: Patch Morphe (Python)
+rname: Patch Morphe (Python)
 
 on:
   workflow_dispatch:
@@ -63,7 +63,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 6
+      max-parallel: 1
       matrix:
         app:
           - youtube
