@@ -15,12 +15,13 @@ DISPLAY_NAMES = {
     "google-photos": "Google Photos",
     "inure-github": "inure-Github",
     "inure-play": "inure-PlayStore",
+    "waze": "Waze",
 }
 
 APKMIRROR_APPS = [
     "youtube", "youtube-music", "reddit", "twitter",
     "gboard", "brave",
-    "proton-vpn", "tiktok", "warp", "inshot", "google-photos",
+    "proton-vpn", "tiktok", "warp", "inshot", "google-photos", "waze",
 ]
 
 APPS_CONFIG = {
@@ -92,12 +93,17 @@ APPS_CONFIG = {
     },
     "inure-github": {
         "pkg": "app.simple.inure", "name": "inure-github", "patch_source": "rushi",
-        "arch": "arm64-v8a", "icon": "https://github.com/Hamza417.png",
+        "arch": "arm64-v8a", "icon": "https://files.svgcdn.io/arcticons/inure.svg",
         "exclude": [],
     },
     "inure-play": {
         "pkg": "app.simple.inure.play", "name": "inure-play", "patch_source": "rushi",
-        "arch": "arm64-v8a", "icon": "https://github.com/Hamza417.png",
+        "arch": "arm64-v8a", "icon": "https://files.svgcdn.io/arcticons/inure.svg",
+        "exclude": [],
+    },
+    "waze": {
+        "pkg": "com.waze", "name": "waze", "patch_source": "rushi",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/waze/33CCFF",
         "exclude": [],
     },
 }
@@ -105,7 +111,7 @@ APPS_CONFIG = {
 PROCESS_ORDER = [
     "youtube", "youtube-music", "reddit", "reddit-adobo", "twitter", "instagram",
     "gboard", "speedtest", "brave",
-    "proton-vpn", "tiktok", "warp", "inshot", "google-photos", "inure-github", "inure-play",
+    "proton-vpn", "tiktok", "warp", "inshot", "google-photos", "inure-github", "inure-play", "waze",
 ]
 
 PATCH_SOURCES = {
