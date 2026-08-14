@@ -7,6 +7,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from . import log
+
 _SIG_FILE = Path(os.getenv("KNOWN_SIGNATURES_PATH", Path.cwd() / "known_signatures.json"))
 _PENDING_FILE = Path(os.getenv("PENDING_SIGNATURES_PATH", Path.cwd() / "pending_signatures.json"))
 _DIGEST_RE = re.compile(r"certificate SHA-256 digest:\s*([0-9a-fA-F:]+)")
@@ -17,7 +19,7 @@ def _load_json(path: Path) -> dict:
         try:
             return json.loads(path.read_text())
         except Exception:
-            print(f"Could not read/parse {path}, treating as empty.")
+            log.warn(f"Could not read/parse {path}, treating as empty.")
     return {}
 
 
@@ -85,15 +87,15 @@ def _resolve_verifiable_apk(path: str) -> tuple[str, str | None]:
 
 def verify_apk_signature(apk_path: str, app_name: str) -> None:
     if os.getenv("SKIP_SIGNATURE_VERIFY") == "1":
-        print(f"SKIP_SIGNATURE_VERIFY=1: skipping signature verification for {app_name}.")
+        log.warn(f"SKIP_SIGNATURE_VERIFY=1: skipping signature verification for {app_name}.")
         return
 
-    print(f"Verifying signature: {app_name} ({Path(apk_path).name})")
+    log.lock(f"Verifying signature: {app_name} ({Path(apk_path).name})")
 
     verifiable_path, temp_dir = _resolve_verifiable_apk(apk_path)
     try:
         if temp_dir:
-            print(f"   Bundle detected, extracting and verifying base.apk: {Path(verifiable_path).name}")
+            log.info(f"   Bundle detected, extracting and verifying base.apk: {Path(verifiable_path).name}")
         fingerprints = get_apk_certificate_fingerprints(verifiable_path)
     finally:
         if temp_dir:
@@ -123,4 +125,4 @@ def verify_apk_signature(apk_path: str, app_name: str) -> None:
             f"Stopping for safety."
         )
 
-    print(f"Signature verified: {app_name} ({pinned})")
+    log.success(f"Signature verified: {app_name} ({pinned})")
