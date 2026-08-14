@@ -82,6 +82,7 @@ jobs:
           - google-photos
           - inure-github
           - inure-play
+          - waze
 
     steps:
       - name: Checkout
