@@ -4,6 +4,7 @@ from pathlib import Path
 import httpx
 
 from .github import download_latest_github_asset
+from . import log
 
 TOKEN = os.environ.get("GITHUB_TOKEN", "")
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
@@ -24,7 +25,7 @@ def _assert_configured():
 
 async def create_new_release(tag: str, release_name: str, release_body: str = "", draft: bool = False) -> dict:
     _assert_configured()
-    print("Creating new release:", tag)
+    log.step(f"Creating new release: {tag}")
 
     async with httpx.AsyncClient(timeout=30) as client:
         res = await client.post(
@@ -84,7 +85,7 @@ async def delete_other_releases(keep_release_id: int) -> None:
     for release in releases:
         if release["id"] == keep_release_id:
             continue
-        print("Deleting old release:", release.get("tag_name"))
+        log.warn(f"Deleting old release: {release.get('tag_name')}")
         await delete_release(release["id"])
         await delete_tag(release["tag_name"])
 
@@ -141,10 +142,10 @@ async def upload_with_replace(release: dict, file_path: str):
     existing = next((a for a in assets if a["name"] == file_name), None)
 
     if existing:
-        print("Replacing existing asset:", file_name)
+        log.warn(f"Replacing existing asset: {file_name}")
         await delete_asset(existing["id"])
 
-    print("Uploading:", file_name)
+    log.download(f"Uploading: {file_name}")
     return await _upload(release["upload_url"], file_path)
 
 
@@ -156,7 +157,7 @@ async def upload_patched_apk(release: dict, apk_path: str):
 async def upload_microg_once(release: dict):
     _assert_configured()
 
-    print("Fetching MicroG...")
+    log.step("Fetching MicroG...")
     microg_result = await download_latest_github_asset(
         owner="MorpheApp",
         repo="MicroG-RE",
@@ -173,7 +174,7 @@ async def upload_microg_once(release: dict):
     already_uploaded = next((a for a in assets if a["name"] == "MicroG.apk"), None)
 
     if already_uploaded:
-        print("MicroG already up to date on this release, skipping upload")
+        log.info("MicroG already up to date on this release, skipping upload")
         return
 
     await upload_with_replace(release, str(new_path))
