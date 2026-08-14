@@ -11,6 +11,7 @@ from lib.patcher import patch_apk
 from lib.verify import verify_apk_signature
 from lib import apkmirror
 from lib import githubdl
+from lib import log
 
 DIST_DIR = Path.cwd() / "dist"
 
@@ -25,7 +26,7 @@ from lib.config import (
 
 async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
     config = APPS_CONFIG[app_key]
-    print(f"\nPROCESSING: {config['name'].upper()}")
+    log.header(f"PROCESSING: {config['name'].upper()}")
 
     is_apkmirror_app = config["name"] in APKMIRROR_APPS
 
@@ -43,7 +44,7 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
             if versions:
                 selected_version = pick_latest_version(versions)
         except Exception as e:
-            print(f"Could not fetch version list: {e}")
+            log.warn(f"Could not fetch version list: {e}")
 
     if not selected_version:
         if not is_apkmirror_app:
@@ -122,30 +123,31 @@ async def main():
                 result = await process_app(app_key, desktop, patches_pool[APPS_CONFIG[app_key]["patch_source"]])
                 if result:
                     patched_apks_list.append(result)
+                    log.success(f"{app_key.upper()} done: {result['name']}")
                 else:
                     failed_apps.append(app_key)
             except Exception as err:
-                print(f"{app_key.upper()} failed, skipping: {err}")
+                log.error(f"{app_key.upper()} failed, skipping: {err}")
                 failed_apps.append(app_key)
 
             if APPS_CONFIG[app_key]["name"] in APKMIRROR_APPS and app_key != apps_to_process[-1]:
                 delay = random.uniform(6.0, 14.0)
-                print(f"Waiting {delay:.0f}s before the next app (to reduce APKMirror request rate)...")
+                log.wait(f"Waiting {delay:.0f}s before the next app (to reduce APKMirror request rate)...")
                 await asyncio.sleep(delay)
 
         if patched_apks_list:
             names = ", ".join(apk["name"] for apk in patched_apks_list)
-            print(f"\nPatched APK(s) ready in {DIST_DIR}: {names}")
-            print("These will be picked up as a workflow artifact and published in the finalize job.")
+            log.saved(f"Patched APK(s) ready in {DIST_DIR}: {names}")
+            log.info("These will be picked up as a workflow artifact and published in the finalize job.")
 
         if failed_apps:
-            print(f"\nFailed app(s): {', '.join(failed_apps)}")
+            log.error(f"Failed app(s): {', '.join(failed_apps)}")
             raise SystemExit(1)
 
     except SystemExit:
         raise
     except Exception as err:
-        print("Fatal error:", err)
+        log.error(f"Fatal error: {err}")
         raise SystemExit(1)
     finally:
         await apkmirror.close_browser()
