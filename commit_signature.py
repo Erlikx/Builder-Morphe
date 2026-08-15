@@ -1,12 +1,13 @@
 import json
 import os
-import random
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-FILES = ["known_signatures.json", "pending_signatures.json"]
+from core.retry import linear_delay
+
+FILES = ["data/known_signatures.json", "data/pending_signatures.json"]
 
 
 def run(cmd):
@@ -70,7 +71,7 @@ def main():
             print(f"Committed signature record for {app_key}.")
             return
 
-        wait = random.uniform(2, 6) * (attempt + 1)
+        wait = linear_delay(attempt, base=2, jitter_max=4)
         print(f"Push conflict (attempt {attempt + 1}/{max_retries}), retrying in {wait:.0f}s...")
         time.sleep(wait)
 
