@@ -2,9 +2,10 @@ import asyncio
 import os
 from pathlib import Path
 
-from lib.github import download_latest_github_asset
-from lib.release import create_new_release, upload_patched_apk, upload_microg_once, delete_other_releases
-from lib.config import APPS_CONFIG, DISPLAY_NAMES, PATCH_SOURCES
+from core.patch_tools import download_latest_github_asset
+from core.release import create_new_release, upload_patched_apk, upload_microg_once, delete_other_releases
+from core.config import APPS_CONFIG, DISPLAY_NAMES, PATCH_SOURCES, PROCESS_ORDER
+from core import notify
 
 NAME_TO_KEY = {v: k for k, v in DISPLAY_NAMES.items()}
 
@@ -17,9 +18,6 @@ def match_asset(file_name: str):
 
     base = file_name[:-4]
 
-    # Match against the longest display names first so "Reddit-Adobo-1.2.3"
-    # isn't mistakenly matched as "Reddit" with version "Adobo-1.2.3"
-    # (some display names, like "Reddit-Adobo", contain a hyphen themselves).
     for display_name, app_key in sorted(NAME_TO_KEY.items(), key=lambda kv: -len(kv[0])):
         prefix = display_name + "-"
         if base.lower().startswith(prefix.lower()):
@@ -30,7 +28,6 @@ def match_asset(file_name: str):
 
 
 def find_patched_apks(artifacts_dir: Path):
-    """Match every *.apk under artifacts_dir (recursively) to a known app."""
     matched = []
     unmatched = []
 
@@ -64,8 +61,12 @@ async def main():
 
     print(f"Matched {len(matched)} app asset(s).")
 
+    succeeded_keys = {apk["app_key"] for apk in matched}
+    failed_keys = [key for key in PROCESS_ORDER if key not in succeeded_keys]
+
     if not matched:
         print("No apps patched successfully in this run, skipping release creation.")
+        await notify.notify(notify.format_all_failed(release_name, failed_keys))
         return
 
     body = "### Latest Patched APKs\n\n"
@@ -110,6 +111,11 @@ async def main():
         print("Old releases deleted.")
     except Exception as e:
         print(f"Failed to delete old releases: {e}")
+
+    release_url = release.get("html_url") or (
+        f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}/releases/tag/{release_tag}"
+    )
+    await notify.notify(notify.format_summary(release_name, release_url, matched, failed_keys))
 
 
 if __name__ == "__main__":
