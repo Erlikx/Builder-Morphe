@@ -5,17 +5,17 @@ import subprocess
 import shutil
 from pathlib import Path
 
-from lib.github import download_latest_github_asset
-from lib.versions import extract_youtube_versions, pick_latest_version
-from lib.patcher import patch_apk
-from lib.verify import verify_apk_signature
-from lib import apkmirror
-from lib import githubdl
-from lib import log
+from core.patch_tools import download_latest_github_asset
+from core.apk.versions import extract_youtube_versions, pick_latest_version
+from core.apk.patcher import patch_apk
+from core.apk.verify import verify_apk_signature
+from core.sources import apkmirror
+from core.sources import github_apk
+from core import log
 
 DIST_DIR = Path.cwd() / "dist"
 
-from lib.config import (
+from core.config import (
     DISPLAY_NAMES,
     APKMIRROR_APPS,
     APPS_CONFIG,
@@ -60,7 +60,7 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
     if is_apkmirror_app:
         apk_path = await apkmirror.download_apk(selected_version, config["name"], config.get("force_build"))
     else:
-        apk_path = await githubdl.download_apk(selected_version, config["name"], config.get("force_build"))
+        apk_path = await github_apk.download_apk(selected_version, config["name"], config.get("force_build"))
 
     verify_apk_signature(apk_path, config["name"])
 
