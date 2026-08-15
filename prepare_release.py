@@ -1,14 +1,18 @@
 import os
+import sys
 from datetime import datetime, timezone
 
-# No release or tag is created here on purpose: creating one up front used to
-# leave a draft (and an "untagged-<sha>" ref) sitting in the repo for the
-# whole duration of the patch matrix. This script only computes the tag/name
-# that the *actual* release will use once it is created by finalize_release.py,
-# after every app has finished patching.
+from core.validate import validate_config
+
 
 
 def main():
+    try:
+        validate_config()
+    except Exception as e:
+        print(f"Config validation failed:\n{e}")
+        sys.exit(1)
+
     date = datetime.now(timezone.utc)
     tag = f"build-{date.strftime('%Y-%m-%dT%H-%M-%S')}"
     name = f"Patched APKs - {date.day} {date.strftime('%B %Y')}"
