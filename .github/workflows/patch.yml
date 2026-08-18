@@ -142,7 +142,7 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements-lock.txt
 
-      - name: Fix nodriver non-UTF-8 source bug (upstream)
+      - name: Fix zendriver non-UTF-8 source bug (upstream, if present)
         run: |
           python3 - << 'PYEOF'
           import pathlib
@@ -151,7 +151,7 @@ jobs:
           patched_any = False
 
           for base in site.getsitepackages():
-              cdp_dir = pathlib.Path(base) / "nodriver" / "cdp"
+              cdp_dir = pathlib.Path(base) / "zendriver" / "cdp"
               if not cdp_dir.exists():
                   continue
               for py_file in cdp_dir.glob("*.py"):
@@ -165,7 +165,7 @@ jobs:
                       patched_any = True
 
           if not patched_any:
-              print("nodriver source files are already valid UTF-8, no fix needed.")
+              print("zendriver source files are already valid UTF-8, no fix needed.")
           PYEOF
 
       - name: Setup Keystore
