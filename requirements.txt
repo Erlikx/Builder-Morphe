@@ -1,2 +1,2 @@
-nodriver
-httpx
+zendriver
+curl_cffi
