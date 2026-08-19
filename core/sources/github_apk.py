@@ -1,8 +1,9 @@
 from pathlib import Path
 
-import httpx
+from curl_cffi.requests import AsyncSession
 
 from .. import log
+from ..http import new_session
 
 APP_TAGS = {
     "instagram": "instagram",
@@ -36,7 +37,7 @@ def _pick_apk_asset(assets: list[dict], name_hint: str | None = None) -> dict | 
     return arm64 or candidates[0]
 
 
-async def _download_asset(client: httpx.AsyncClient, asset: dict) -> str:
+async def _download_asset(client: AsyncSession, asset: dict) -> str:
     size_mb = asset["size"] / (1024 * 1024)
     log.download(f"Found file to download: {asset['name']} ({size_mb:.2f} MB)")
 
@@ -50,7 +51,7 @@ async def _download_asset(client: httpx.AsyncClient, asset: dict) -> str:
         if file_res.status_code >= 400:
             raise RuntimeError("Failed to download file from GitHub!")
         with open(file_path, "wb") as f:
-            async for chunk in file_res.aiter_bytes():
+            async for chunk in file_res.aiter_content():
                 f.write(chunk)
 
     downloaded_size = Path(file_path).stat().st_size
@@ -62,7 +63,7 @@ async def _download_asset(client: httpx.AsyncClient, asset: dict) -> str:
 
 
 async def download_apk(version: str, app_name: str, force_build: str | None = None) -> str:
-    async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+    async with new_session(timeout=30, follow_redirects=True) as client:
         if app_name in DIRECT_REPOS:
             owner, repo, name_hint, tag_template = DIRECT_REPOS[app_name]
 
