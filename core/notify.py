@@ -1,8 +1,7 @@
 import os
 
-import httpx
-
 from . import log
+from .http import new_session
 
 DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -19,7 +18,7 @@ def _truncate(text: str, limit: int) -> str:
 
 
 async def _send_discord(text: str) -> None:
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with new_session(timeout=15) as client:
         res = await client.post(DISCORD_WEBHOOK_URL, json={"content": _truncate(text, _DISCORD_LIMIT)})
         if res.status_code >= 400:
             log.warn(f"Discord notification failed: HTTP {res.status_code}")
@@ -27,7 +26,7 @@ async def _send_discord(text: str) -> None:
 
 async def _send_telegram(text: str) -> None:
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    async with httpx.AsyncClient(timeout=15) as client:
+    async with new_session(timeout=15) as client:
         res = await client.post(
             url,
             json={
