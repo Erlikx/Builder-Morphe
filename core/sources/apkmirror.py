@@ -40,6 +40,7 @@ APP_SITES = {
     },
     "google-photos": {"org": "google-inc", "slug": "photos", "release_slug": "google-photos"},
     "waze": {"org": "waze", "slug": "waze-gps-maps-traffic-alerts-live-navigation", "release_slug": "waze-navigation-live-traffic"},
+    "proton-pass": {"org": "proton-technologies-ag", "slug": "proton-pass-password-manager"},
 }
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0 Safari/537.36"
