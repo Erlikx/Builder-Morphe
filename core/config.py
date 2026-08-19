@@ -16,12 +16,14 @@ DISPLAY_NAMES = {
     "inure-github": "inure-Github",
     "inure-play": "inure-PlayStore",
     "waze": "Waze",
+    "proton-pass": "Proton Pass",
 }
 
 APKMIRROR_APPS = [
     "youtube", "youtube-music", "reddit", "twitter",
     "gboard", "brave",
     "proton-vpn", "tiktok", "warp", "inshot", "google-photos", "waze",
+    "proton-pass",
 ]
 
 APPS_CONFIG = {
@@ -106,12 +108,17 @@ APPS_CONFIG = {
         "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/waze/33CCFF",
         "exclude": [],
     },
+    "proton-pass": {
+        "pkg": "proton.android.pass", "name": "proton-pass", "patch_source": "rushi",
+        "arch": "arm64-v8a", "icon": "https://cdn.simpleicons.org/protonpass", "exclude": [],
+    },
 }
 
 PROCESS_ORDER = [
     "youtube", "youtube-music", "reddit", "reddit-adobo", "twitter", "instagram",
     "gboard", "speedtest", "brave",
     "proton-vpn", "tiktok", "warp", "inshot", "google-photos", "inure-github", "inure-play", "waze",
+    "proton-pass",
 ]
 
 PATCH_SOURCES = {
