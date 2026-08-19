@@ -83,6 +83,7 @@ jobs:
           - inure-github
           - inure-play
           - waze
+          - proton-pass
 
     steps:
       - name: Checkout
