@@ -2,11 +2,12 @@ import asyncio
 import json
 import random
 import re
+import shutil
 import time
 from pathlib import Path
 
-import nodriver as uc
-from nodriver import cdp
+import zendriver as zd
+from zendriver import cdp
 
 from ..apk.versions import to_apkmirror_version
 from .. import log
@@ -72,12 +73,27 @@ async def get_browser():
         return _shared_browser
 
     async def _start(_attempt: int):
-        return await uc.start(
+        chrome_path = (
+            shutil.which("google-chrome-stable")
+            or shutil.which("google-chrome")
+            or shutil.which("chromium-browser")
+            or shutil.which("chromium")
+        )
+
+        log.info(f"Launching browser at: {chrome_path or '(auto-detect, none found by shutil.which)'}")
+
+        return await zd.start(
             headless=True,
-            no_sandbox=True,
+            sandbox=False,
+            browser_executable_path=chrome_path,
+            browser_connection_timeout=10.0,
+            browser_connection_max_tries=10,
             browser_args=[
+                "--headless=new",
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--disable-setuid-sandbox",
                 "--disable-blink-features=AutomationControlled",
                 f"--user-agent={USER_AGENT}",
             ],
@@ -96,7 +112,7 @@ async def close_browser():
     global _shared_browser, _downloads_ready
     if _shared_browser is not None:
         try:
-            _shared_browser.stop()
+            await _shared_browser.stop()
         except Exception:
             pass
         _shared_browser = None
