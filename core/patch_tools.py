@@ -2,10 +2,9 @@ import os
 from pathlib import Path
 from typing import Callable
 
-import httpx
-
 from . import log
 from . import retry
+from .http import new_session
 
 GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
 
@@ -18,7 +17,7 @@ async def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) 
     )
 
     async def _do(_i: int):
-        async with httpx.AsyncClient(timeout=30) as client:
+        async with new_session(timeout=30) as client:
             res = await client.get(
                 url,
                 headers={
@@ -55,13 +54,13 @@ async def _download_file(url: str, output_path: Path, expected_size: int | None 
 
     mode = "ab" if downloaded > 0 else "wb"
 
-    async with httpx.AsyncClient(follow_redirects=True, timeout=None) as client:
+    async with new_session(follow_redirects=True, timeout=None) as client:
         async with client.stream("GET", url, headers=headers) as res:
             if res.status_code >= 400:
                 raise RuntimeError(f"HTTP {res.status_code}")
 
             with open(temp_path, mode) as f:
-                async for chunk in res.aiter_bytes():
+                async for chunk in res.aiter_content():
                     f.write(chunk)
                     downloaded += len(chunk)
 
