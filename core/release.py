@@ -1,10 +1,9 @@
 import os
 from pathlib import Path
 
-import httpx
-
 from .patch_tools import download_latest_github_asset
 from . import log
+from .http import new_session
 
 TOKEN = os.environ.get("GITHUB_TOKEN", "")
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
@@ -27,7 +26,7 @@ async def create_new_release(tag: str, release_name: str, release_body: str = ""
     _assert_configured()
     log.step(f"Creating new release: {tag}")
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with new_session(timeout=30) as client:
         res = await client.post(
             f"https://api.github.com/repos/{REPO}/releases",
             headers=HEADERS,
@@ -49,7 +48,7 @@ async def create_new_release(tag: str, release_name: str, release_body: str = ""
 
 
 async def list_releases() -> list[dict]:
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with new_session(timeout=30) as client:
         res = await client.get(
             f"https://api.github.com/repos/{REPO}/releases",
             headers=HEADERS,
@@ -64,7 +63,7 @@ async def list_releases() -> list[dict]:
 
 
 async def delete_release(release_id: int) -> None:
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with new_session(timeout=30) as client:
         await client.delete(
             f"https://api.github.com/repos/{REPO}/releases/{release_id}",
             headers=HEADERS,
@@ -72,7 +71,7 @@ async def delete_release(release_id: int) -> None:
 
 
 async def delete_tag(tag: str) -> None:
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with new_session(timeout=30) as client:
         await client.delete(
             f"https://api.github.com/repos/{REPO}/git/refs/tags/{tag}",
             headers=HEADERS,
@@ -91,7 +90,7 @@ async def delete_other_releases(keep_release_id: int) -> None:
 
 
 async def update_release_body(release_id: int, body: str) -> dict:
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with new_session(timeout=30) as client:
         res = await client.patch(
             f"https://api.github.com/repos/{REPO}/releases/{release_id}",
             headers=HEADERS,
@@ -101,7 +100,7 @@ async def update_release_body(release_id: int, body: str) -> dict:
 
 
 async def get_assets(release_id: int) -> list[dict]:
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with new_session(timeout=30) as client:
         res = await client.get(
             f"https://api.github.com/repos/{REPO}/releases/{release_id}/assets",
             headers=HEADERS,
@@ -110,7 +109,7 @@ async def get_assets(release_id: int) -> list[dict]:
 
 
 async def delete_asset(asset_id: int):
-    async with httpx.AsyncClient(timeout=30) as client:
+    async with new_session(timeout=30) as client:
         await client.delete(
             f"https://api.github.com/repos/{REPO}/releases/assets/{asset_id}",
             headers=HEADERS,
@@ -123,7 +122,7 @@ async def _upload(upload_url: str, file_path: str) -> dict:
 
     url = upload_url.replace("{?name,label}", "") + f"?name={file_name}"
 
-    async with httpx.AsyncClient(timeout=None) as client:
+    async with new_session(timeout=None) as client:
         res = await client.post(
             url,
             headers={
