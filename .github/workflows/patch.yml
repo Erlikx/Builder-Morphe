@@ -1,0 +1,281 @@
+name: Patch
+
+on:
+  workflow_dispatch:
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    permissions:
+      contents: write
+
+    outputs:
+      release_tag: ${{ steps.release.outputs.tag }}
+      release_name: ${{ steps.release.outputs.name }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+
+      - name: Install & freeze Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install --upgrade -r requirements.txt
+          pip freeze > requirements-lock.txt
+
+      - name: Commit updated lockfile
+        run: |
+          if [ -n "$(git status --porcelain -- requirements-lock.txt)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add requirements-lock.txt
+            git commit -m "chore: update requirements-lock.txt [skip ci]"
+            git push
+          else
+            echo "requirements-lock.txt unchanged, skipping commit."
+          fi
+
+      - name: Compute release tag
+        id: release
+        run: python prepare_release.py
+
+  patch:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    permissions:
+      contents: write
+      actions: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        app:
+          - youtube
+          - youtube-music
+          - reddit
+          - reddit-adobo
+          - twitter
+          - instagram
+          - gboard
+          - speedtest
+          - brave
+          - proton-vpn
+          - tiktok
+          - warp
+          - inshot
+          - google-photos
+          - inure-github
+          - inure-play
+          - proton-pass
+          - notesnook
+          - kick-tv
+          - termius
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Show runner IP
+        run: curl -s https://api.ipify.org
+
+      - name: Jitter delay before browser starts
+        run: |
+          delay=$(( RANDOM % 25 ))
+          echo "Sleeping ${delay}s to avoid every matrix job hitting APKMirror in the same instant"
+          sleep "$delay"
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+
+      - name: Setup Java
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: 25
+
+      - name: Install Google Chrome
+        run: |
+          if command -v google-chrome-stable >/dev/null 2>&1; then
+            echo "Chrome already installed, skipping: $(google-chrome-stable --version)"
+          else
+            wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/google-chrome.gpg
+            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+            sudo apt-get update
+            sudo apt-get install -y google-chrome-stable
+          fi
+
+      - name: Install apksigner (Android SDK build-tools)
+        run: |
+          APKSIGNER_BIN=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -maxdepth 2 -name apksigner 2>/dev/null | sort -V | tail -1)
+
+          if [ -z "$APKSIGNER_BIN" ]; then
+            echo "apksigner not found, downloading Android command-line tools..."
+            SDK_ROOT="$HOME/android-sdk"
+            mkdir -p "$SDK_ROOT/cmdline-tools"
+            curl -sL https://dl.google.com/android/repository/commandlinetools-linux-latest.zip -o cmdline-tools.zip
+            unzip -q cmdline-tools.zip -d "$SDK_ROOT/cmdline-tools"
+            mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
+            yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses > /dev/null 2>&1 || true
+            "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "build-tools;35.0.0"
+            APKSIGNER_BIN="$SDK_ROOT/build-tools/35.0.0/apksigner"
+          else
+            echo "apksigner already installed: $APKSIGNER_BIN"
+          fi
+
+          echo "APKSIGNER_PATH=$APKSIGNER_BIN" >> "$GITHUB_ENV"
+          "$APKSIGNER_BIN" --version
+
+      - name: Install Python dependencies (from lockfile, pinned versions)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-lock.txt
+
+      - name: Fix zendriver non-UTF-8 source bug (upstream, inherited from nodriver)
+        run: |
+          python3 - << 'PYEOF'
+          import pathlib
+          import site
+
+          patched_any = False
+
+          for base in site.getsitepackages():
+              cdp_dir = pathlib.Path(base) / "zendriver" / "cdp"
+              if not cdp_dir.exists():
+                  continue
+              for py_file in cdp_dir.glob("*.py"):
+                  raw = py_file.read_bytes()
+                  try:
+                      raw.decode("utf-8")
+                  except UnicodeDecodeError:
+                      fixed = raw.decode("latin-1").encode("utf-8")
+                      py_file.write_bytes(fixed)
+                      print(f"Patched invalid UTF-8 bytes in: {py_file}")
+                      patched_any = True
+
+          if not patched_any:
+              print("zendriver source files are already valid UTF-8, no fix needed.")
+          PYEOF
+
+      - name: Setup Keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > Panemi.keystore
+
+      - name: Run script
+        run: python -u main.py
+        env:
+          PYTHONUNBUFFERED: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          TARGET_APP: ${{ matrix.app }}
+          KS_PATH: "Panemi.keystore"
+          KS_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KS_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      - name: Upload patched APK artifact
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: apk-${{ matrix.app }}
+          path: dist/*.apk
+          if-no-files-found: ignore
+          retention-days: 1
+
+      - name: Upload diagnostic screenshots
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: diagnostics-${{ matrix.app }}-${{ github.run_id }}
+          path: diagnostics/
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Commit updated signature files
+        if: always()
+        run: python commit_signature.py "${{ matrix.app }}"
+
+      - name: Generate build provenance attestation
+        if: ${{ hashFiles('dist/*.apk') != '' }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: |
+            dist/*.apk
+            !dist/microg*.apk
+
+  finalize:
+    needs: [prepare, patch]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    permissions:
+      contents: write
+      actions: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Setup Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install curl_cffi
+
+      - name: Download patched APK artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          pattern: apk-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release and clean up old releases
+        run: python finalize_release.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
+          RELEASE_NAME: ${{ needs.prepare.outputs.release_name }}
+          ARTIFACTS_DIR: artifacts
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+
+  cleanup:
+    needs: finalize
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Delete old workflow runs
+        uses: Mattraks/delete-workflow-runs@b3018382ca039b53d238908238bd35d1fb14f8ee
+        with:
+          retain_days: 0
+          keep_minimum_runs: 1
