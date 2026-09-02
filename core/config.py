@@ -174,7 +174,6 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "patch_source": "rushi",
         "arch": "arm64-v8a",
         "icon": "https://cdn.simpleicons.org/googlephotos",
-        "force_version": [],
         "exclude": [],
         "enable": [
             "AMOLED dark theme",
