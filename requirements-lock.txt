@@ -8,5 +8,5 @@ grapheme==0.6.0
 mss==10.2.0
 pycparser==3.0
 websockets==17.1
-wrapt==2.3.0
+wrapt==2.4.0
 zendriver==0.16.0
