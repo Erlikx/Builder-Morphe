@@ -8,10 +8,8 @@ import subprocess
 import time
 from pathlib import Path
 from typing import Any
-from urllib.parse import urljoin
 
 import zendriver as zd
-from curl_cffi import requests as cffi_requests
 from zendriver import cdp
 
 from .. import log, retry
@@ -58,6 +56,7 @@ APP_SITES = {
 }
 
 _CHROME_VERSION_RE = re.compile(r"(\d+\.\d+\.\d+\.\d+)")
+
 _UA_VERSION_FALLBACK = "132.0.0.0"
 
 
@@ -377,64 +376,7 @@ async def _extract_variant_url(tab, force_build: str | None, app_name: str) -> s
     return await tab.evaluate(js)
 
 
-async def _extract_cookies(tab) -> dict[str, str]:
-    """Zendriver üzerinden güncel çerezleri sözlük olarak çeker."""
-    try:
-        cookies_cdp = await tab.send(cdp.network.get_cookies())
-        return {c.name: c.value for c in cookies_cdp}
-    except Exception as e:
-        log.warn(f"Could not extract cookies via CDP: {e}")
-        return {}
-
-
-def _download_via_curl_cffi(url: str, referer: str, out_file: Path, cookies: dict[str, str], user_agent: str) -> bool:
-    """Cloudflare clearance çerezi ve senkronize başlıklarla indirmeyi dener."""
-    # cf_clearance yoksa WAF doğrudan 403 basacağı için isteği gereksiz yere zorlamıyoruz
-    if "cf_clearance" not in cookies:
-        log.info("cf_clearance token not found in cookies; bypassing curl_cffi.")
-        return False
-
-    chrome_major = "124"
-    match = re.search(r"Chrome/(\d+)", user_agent)
-    if match:
-        chrome_major = match.group(1)
-
-    headers = {
-        "User-Agent": user_agent,
-        "Referer": referer,
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Sec-Ch-Ua": f'"Chromium";v="{chrome_major}", "Google Chrome";v="{chrome_major}", "Not-A.Brand";v="99"',
-        "Sec-Ch-Ua-Mobile": "?0",
-        "Sec-Ch-Ua-Platform": '"Linux"',
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "same-origin",
-        "Sec-Fetch-User": "?1",
-        "Upgrade-Insecure-Requests": "1",
-    }
-
-    try:
-        log.info("Attempting stream download with curl_cffi and cf_clearance session...")
-        with cffi_requests.Session(impersonate="chrome124") as session:
-            resp = session.get(url, headers=headers, cookies=cookies, stream=True, timeout=90)
-            if resp.status_code == 200:
-                with open(out_file, "wb") as f:
-                    for chunk in resp.iter_content(chunk_size=65536):
-                        if chunk:
-                            f.write(chunk)
-
-                if out_file.exists() and out_file.stat().st_size > 1024:
-                    return True
-            else:
-                log.warn(f"curl_cffi returned status code {resp.status_code}")
-    except Exception as e:
-        log.warn(f"curl_cffi request failed: {e}")
-
-    return False
-
-
-async def _wait_for_download(out_dir: Path, existing: set, timeout: float = 75.0):
+async def _wait_for_download(out_dir: Path, existing: set, timeout: float = 60.0):
     deadline = time.monotonic() + timeout
     last_sizes: dict[str, int] = {}
 
@@ -498,49 +440,25 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
 
         await _goto(tab, variant_url, wait=1.2, label="variant-page")
 
-        # 1. İlk indirme butonuna tıkla / sayfayı aç
-        download_page_href = await tab.evaluate(
-            "(() => { const el = document.querySelector('a.downloadButton'); return el ? el.getAttribute('href') : null; })()"
-        )
+        existing_before = {f.name for f in out_dir.iterdir() if f.is_file()}
 
-        final_direct_url = None
-        current_page = variant_url
+        log.browser("Clicking main download button...")
+        await tab.evaluate("document.querySelector('a.downloadButton')?.click()")
 
-        if download_page_href:
-            download_page_url = urljoin("https://www.apkmirror.com", download_page_href)
-            await _goto(tab, download_page_url, wait=1.5, label="confirm-page")
-            current_page = download_page_url
+        downloaded = await _wait_for_download(out_dir, existing_before, timeout=20)
 
-            final_direct_url = await tab.evaluate(
+        if not downloaded:
+            log.warn("Direct download did not start, waiting for confirm page...")
+            await _jitter_sleep(1.5)
+
+            final_href = await tab.evaluate(
                 "(() => { const el = document.querySelector('#download-link'); return el ? el.getAttribute('href') : null; })()"
             )
 
-        # 2. cf_clearance mevcutsa curl_cffi ile hızlı akış dene
-        if final_direct_url:
-            target_url = urljoin("https://www.apkmirror.com", final_direct_url)
-            cookies = await _extract_cookies(tab)
-            ua = await tab.evaluate("navigator.userAgent")
-            out_file = out_dir / f"{app_name}-{version}.apk"
-
-            success = await asyncio.to_thread(_download_via_curl_cffi, target_url, current_page, out_file, cookies, ua)
-            if success:
-                size = out_file.stat().st_size
-                log.success(f"DONE (curl_cffi): {out_file} ({size / 1024 / 1024:.2f} MB)")
-                return str(out_file)
-
-        # 3. Tarayıcı üzerinden doğrudan CDP tetiklemesi (En güvenilir fallback)
-        existing_before = {f.name for f in out_dir.iterdir() if f.is_file()}
-        log.browser("Triggering in-browser download click...")
-
-        # Hem ana buton hem de yedek #download-link üzerinden tıklamayı tetikle
-        await tab.evaluate("""
-            (() => {
-                const btn = document.querySelector('#download-link') || document.querySelector('a.downloadButton');
-                if (btn) btn.click();
-            })()
-        """)
-
-        downloaded = await _wait_for_download(out_dir, existing_before, timeout=75)
+            if final_href:
+                log.browser("Clicking final download link...")
+                await tab.evaluate("document.querySelector('#download-link')?.click()")
+                downloaded = await _wait_for_download(out_dir, existing_before, timeout=60)
 
         if not downloaded:
             current_url = await tab.evaluate("location.href")
@@ -553,7 +471,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
         if size < 1024:
             raise RuntimeError(f"Downloaded file too small ({size} bytes)")
 
-        log.success(f"DONE (CDP): {downloaded} ({size / 1024 / 1024:.2f} MB)")
+        log.success(f"DONE: {downloaded} ({size / 1024 / 1024:.2f} MB)")
         return str(downloaded)
 
     except Exception:
