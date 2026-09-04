@@ -47,6 +47,7 @@ APP_SITES = {
         "slug": "notesnook-private-notes-app",
         "release_slug": "notesnook-secure-private-notes",
     },
+    "kick-tv": {"org": "kick-live-streaming", "slug": "kick-live-streaming-android-tv"},
     "termius": {
         "org": "termius-corporation",
         "slug": "termius-ssh-telnet-client",
