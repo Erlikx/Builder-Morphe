@@ -35,6 +35,7 @@ DISPLAY_NAMES: dict[str, str] = {
     "inure-play": "inure-PlayStore",
     "proton-pass": "Proton Pass",
     "notesnook": "Notesnook",
+    "kick-tv": "Kick TV",
     "termius": "Termius",
 }
 
@@ -52,6 +53,7 @@ APKMIRROR_APPS: list[str] = [
     "google-photos",
     "proton-pass",
     "notesnook",
+    "kick-tv",
     "termius",
 ]
 
@@ -92,7 +94,7 @@ APPS_CONFIG: dict[str, AppConfig] = {
     "twitter": {
         "pkg": "com.twitter.android",
         "name": "twitter",
-        "patch_source": "piko-newx",
+        "patch_source": "piko",
         "arch": "arm64-v8a",
         "icon": "https://cdn.simpleicons.org/x/000000",
         "exclude": ["Dynamic color"],
@@ -214,6 +216,14 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "icon": "https://www.google.com/s2/favicons?sz=128&domain=notesnook.com",
         "exclude": [],
     },
+    "kick-tv": {
+        "pkg": "com.kick.mobile",
+        "name": "kick-tv",
+        "patch_source": "hxreborn",
+        "arch": "arm64-v8a",
+        "icon": "https://www.google.com/s2/favicons?sz=128&domain=kick.com",
+        "exclude": [],
+    },
     "termius": {
         "pkg": "com.server.auditor.ssh.client",
         "name": "termius",
@@ -243,13 +253,13 @@ PROCESS_ORDER: list[str] = [
     "inure-play",
     "proton-pass",
     "notesnook",
+    "kick-tv",
     "termius",
 ]
 
 PATCH_SOURCES: dict[str, tuple[str, str, str]] = {
     "morphe": ("MorpheApp", "morphe-patches", "🟢 Morphe"),
     "piko": ("crimera", "piko", "✖️ Piko"),
-    "piko-newx": ("crimera", "piko-newx", "✖️ Piko NewX"),
     "adobo": ("jkennethcarino", "adobo", "🥘 Adobo"),
     "rushi": ("rushiranpise", "morphe-patches", "⚡ Rushiranpise"),
     "dh6k": ("dh6k", "morphe-patches", "🦁 dh6k"),
