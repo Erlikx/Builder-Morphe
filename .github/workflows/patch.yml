@@ -84,6 +84,7 @@ jobs:
           - inure-play
           - proton-pass
           - notesnook
+          - kick-tv
           - termius
 
     steps:
