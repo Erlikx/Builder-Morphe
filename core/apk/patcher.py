@@ -12,7 +12,7 @@ def _redact(cmd: list[str], secrets: set[str]) -> list[str]:
 
 def patch_apk(
     desktop: str,
-    patches: str,
+    patches: list[str],
     apk: str,
     exclude: list[str] | None = None,
     enable: list[str] | None = None,
@@ -25,7 +25,10 @@ def patch_apk(
     ks_alias = os.environ.get("KS_ALIAS")
     key_password = os.environ.get("KEY_PASSWORD")
 
-    cmd = ["java", "-jar", desktop, "patch", "--patches", patches]
+    cmd = ["java", "-jar", desktop, "patch"]
+
+    for p in patches:
+        cmd += ["--patches", p]
 
     if arch:
         cmd += ["--striplibs", arch]
