@@ -3,11 +3,21 @@ import os
 from pathlib import Path
 
 from core import notify
-from core.config import APPS_CONFIG, DISPLAY_NAMES, PATCH_SOURCES, PROCESS_ORDER
+from core.config import APPS_CONFIG, PATCH_SOURCES, PROCESS_ORDER, get_release_naming, patch_sources_for
 from core.patch_tools import download_latest_github_asset
 from core.release import create_new_release, delete_other_releases, upload_microg_once, upload_patched_apk
 
-NAME_TO_KEY = {v: k for k, v in DISPLAY_NAMES.items()}
+
+def _build_asset_candidates() -> list[tuple[str, str, str | None]]:
+    candidates = []
+    for app_key in APPS_CONFIG:
+        display_name, tag = get_release_naming(app_key)
+        candidates.append((app_key, display_name, tag))
+    candidates.sort(key=lambda c: -len(c[1]))
+    return candidates
+
+
+_ASSET_CANDIDATES = _build_asset_candidates()
 
 
 def match_asset(file_name: str):
@@ -18,11 +28,20 @@ def match_asset(file_name: str):
 
     base = file_name[:-4]
 
-    for display_name, app_key in sorted(NAME_TO_KEY.items(), key=lambda kv: -len(kv[0])):
+    for app_key, display_name, tag in _ASSET_CANDIDATES:
         prefix = display_name + "-"
-        if base.lower().startswith(prefix.lower()):
-            version_part = base[len(prefix) :]
-            return app_key, display_name, version_part
+        if not base.lower().startswith(prefix.lower()):
+            continue
+
+        remainder = base[len(prefix) :]
+
+        if tag:
+            suffix = f"-{tag}"
+            if not remainder.lower().endswith(suffix.lower()):
+                continue
+            remainder = remainder[: -len(suffix)]
+
+        return app_key, display_name, remainder
 
     return None
 
@@ -78,9 +97,11 @@ async def main():
 
     body += "\n---\n\n"
 
-    used_sources = sorted({APPS_CONFIG[apk["app_key"]]["patch_source"] for apk in matched})
+    used_sources: set[str] = set()
+    for apk in matched:
+        used_sources.update(patch_sources_for(apk["app_key"]))
 
-    for key in used_sources:
+    for key in sorted(used_sources):
         if key not in PATCH_SOURCES:
             continue
         owner, repo, label = PATCH_SOURCES[key]
