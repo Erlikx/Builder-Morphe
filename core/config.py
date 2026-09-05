@@ -156,8 +156,7 @@ APPS_CONFIG: dict[str, AppConfig] = {
     "tiktok": {
         "pkg": "com.zhiliaoapp.musically",
         "name": "tiktok",
-        "patch_source": "tiktok",
-        "patch_source": "morphe",
+        "patch_source": ["tiktok", "morphe"],
         "arch": "arm64-v8a",
         "force_version": "46.2.3",
         "icon": "https://cdn.simpleicons.org/tiktok",
