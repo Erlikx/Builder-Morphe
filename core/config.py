@@ -106,7 +106,6 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "arch": "arm64-v8a",
         "force_version": "12.22.0-prod.01",
         "icon": "https://cdn.simpleicons.org/x/000000",
-    
     },
     "instagram": {
         "pkg": "com.instagram.android",
