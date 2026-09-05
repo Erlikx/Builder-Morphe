@@ -4,7 +4,7 @@ from typing import TypedDict
 class _AppConfigRequired(TypedDict):
     pkg: str
     name: str
-    patch_source: str
+    patch_source: str | list[str]
     arch: str
     icon: str
 
@@ -28,6 +28,7 @@ DISPLAY_NAMES: dict[str, str] = {
     "brave": "Brave",
     "proton-vpn": "Proton VPN",
     "tiktok": "TikTok",
+    "tiktok-hxreborn": "TikTok",
     "warp": "1.1.1.1",
     "inshot": "InShot",
     "google-photos": "Google Photos",
@@ -106,6 +107,7 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "arch": "arm64-v8a",
         "force_version": "12.22.0-prod.01",
         "icon": "https://cdn.simpleicons.org/x/000000",
+    
     },
     "instagram": {
         "pkg": "com.instagram.android",
@@ -155,11 +157,20 @@ APPS_CONFIG: dict[str, AppConfig] = {
     "tiktok": {
         "pkg": "com.zhiliaoapp.musically",
         "name": "tiktok",
-        "patch_source": "tiktok",
+        "patch_source": ["tiktok", "morphe"],
         "arch": "arm64-v8a",
-        "force_version": "46.2.3",
         "icon": "https://cdn.simpleicons.org/tiktok",
         "exclude": [],
+        "enable": ["Disable Play Store updates"],
+    },
+    "tiktok-hxreborn": {
+        "pkg": "com.zhiliaoapp.musically",
+        "name": "tiktok",
+        "patch_source": ["hxreborn-tiktok", "morphe"],
+        "arch": "arm64-v8a",
+        "icon": "https://cdn.simpleicons.org/tiktok",
+        "exclude": [],
+        "enable": ["Disable Play Store updates"],
     },
     "warp": {
         "pkg": "com.cloudflare.onedotonedotonedotone",
@@ -248,6 +259,7 @@ PROCESS_ORDER: list[str] = [
     "brave",
     "proton-vpn",
     "tiktok",
+    "tiktok-hxreborn",
     "warp",
     "inshot",
     "google-photos",
@@ -270,4 +282,22 @@ PATCH_SOURCES: dict[str, tuple[str, str, str]] = {
     "hooman": ("arandomhooman", "hoomans-morphe-patches", "🎬 Hooman's Patches"),
     "jasonwu": ("jasonwu1994", "Gboard-patches", "⌨️ JasonWu Gboard"),
     "hxreborn": ("hxreborn", "morphe-patches", "🔥 hxreborn"),
+    "hxreborn-tiktok": ("hxreborn", "hxreborn-tiktok-patches", "🔥 hxreborn TikTok"),
 }
+
+
+def patch_sources_for(app_key: str) -> list[str]:
+    source = APPS_CONFIG[app_key]["patch_source"]
+    return source if isinstance(source, list) else [source]
+
+
+def get_release_naming(app_key: str) -> tuple[str, str | None]:
+    config = APPS_CONFIG[app_key]
+    display_name = DISPLAY_NAMES.get(app_key, config["name"])
+
+    siblings = [k for k, c in APPS_CONFIG.items() if DISPLAY_NAMES.get(k, c["name"]) == display_name]
+    if len(siblings) <= 1:
+        return display_name, None
+
+    primary_source = patch_sources_for(app_key)[0]
+    return display_name, PATCH_SOURCES[primary_source][0]
