@@ -19,8 +19,14 @@ def validate_config() -> None:
 
     for app_key, cfg in APPS_CONFIG.items():
         source = cfg.get("patch_source")
-        if source not in PATCH_SOURCES:
-            problems.append(f'APPS_CONFIG["{app_key}"].patch_source = "{source}" is not a key in PATCH_SOURCES.')
+        sources = source if isinstance(source, list) else [source]
+
+        if not sources:
+            problems.append(f'APPS_CONFIG["{app_key}"].patch_source is an empty list.')
+
+        for s in sources:
+            if s not in PATCH_SOURCES:
+                problems.append(f'APPS_CONFIG["{app_key}"].patch_source = "{s}" is not a key in PATCH_SOURCES.')
 
         name = cfg.get("name")
         if not name:
