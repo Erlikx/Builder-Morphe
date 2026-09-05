@@ -159,6 +159,7 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "patch_source": "tiktok",
         "patch_source": "morphe",
         "arch": "arm64-v8a",
+        "force_version": "46.2.3",
         "icon": "https://cdn.simpleicons.org/tiktok",
         "exclude": [],
     },
