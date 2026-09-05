@@ -12,9 +12,10 @@ from core.apk.versions import extract_youtube_versions, pick_latest_version
 from core.config import (
     APKMIRROR_APPS,
     APPS_CONFIG,
-    DISPLAY_NAMES,
     PATCH_SOURCES,
     PROCESS_ORDER,
+    get_release_naming,
+    patch_sources_for,
 )
 from core.patch_tools import download_latest_github_asset
 from core.sources import apkmirror, github_apk
@@ -22,7 +23,7 @@ from core.sources import apkmirror, github_apk
 DIST_DIR = Path.cwd() / "dist"
 
 
-async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
+async def process_app(app_key: str, desktop: str, patches: list[str]) -> dict | None:
     config = APPS_CONFIG[app_key]
     log.header(f"PROCESSING: {config['name'].upper()}")
 
@@ -32,6 +33,10 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
 
     if not selected_version:
         try:
+            patch_flags = []
+            for p in patches:
+                patch_flags += ["--patches", p]
+
             result = subprocess.run(
                 [
                     "java",
@@ -40,8 +45,7 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
                     "list-versions",
                     "-f",
                     config["pkg"],
-                    "--patches",
-                    patches,
+                    *patch_flags,
                     "--include-experimental",
                 ],
                 capture_output=True,
@@ -84,8 +88,11 @@ async def process_app(app_key: str, desktop: str, patches: str) -> dict | None:
     if not Path(patched_apk).exists():
         return None
 
-    display_name = DISPLAY_NAMES.get(app_key, config["name"])
-    final_name = f"{display_name}-{selected_version}.apk"
+    display_name, source_tag = get_release_naming(app_key)
+    if source_tag:
+        final_name = f"{display_name}-{selected_version}-{source_tag}.apk"
+    else:
+        final_name = f"{display_name}-{selected_version}.apk"
     DIST_DIR.mkdir(parents=True, exist_ok=True)
     final_path = DIST_DIR / final_name
 
@@ -118,7 +125,7 @@ async def main():
         patches_pool: dict[str, str | None] = {k: None for k in PATCH_SOURCES}
 
         for key, (owner, repo, _label) in PATCH_SOURCES.items():
-            needed = any(APPS_CONFIG[k]["patch_source"] == key for k in apps_to_process)
+            needed = any(key in patch_sources_for(k) for k in apps_to_process)
             if needed:
                 asset = await download_latest_github_asset(
                     owner=owner,
@@ -133,11 +140,13 @@ async def main():
 
         for app_key in apps_to_process:
             try:
-                patch_source = APPS_CONFIG[app_key]["patch_source"]
-                patch_file = patches_pool[patch_source]
-                if patch_file is None:
-                    raise RuntimeError(f"No patch file resolved for source '{patch_source}'")
-                result = await process_app(app_key, desktop, patch_file)
+                patch_files = []
+                for source in patch_sources_for(app_key):
+                    patch_file = patches_pool[source]
+                    if patch_file is None:
+                        raise RuntimeError(f"No patch file resolved for source '{source}'")
+                    patch_files.append(patch_file)
+                result = await process_app(app_key, desktop, patch_files)
                 if result:
                     patched_apks_list.append(result)
                     log.success(f"{app_key.upper()} done: {result['name']}")
