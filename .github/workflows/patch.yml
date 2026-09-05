@@ -78,6 +78,7 @@ jobs:
           - brave
           - proton-vpn
           - tiktok
+          - tiktok-hxreborn
           - warp
           - inshot
           - google-photos
