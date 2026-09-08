@@ -38,6 +38,12 @@ DISPLAY_NAMES: dict[str, str] = {
     "notesnook": "Notesnook",
     "termius": "Termius",
     "twitter-x": "Twitter-X",
+    "lara-croft-gol": "Lara Croft: GoL",
+    "prince-of-persia-lost-crown": "PoP: Lost Crown",
+    "altos-adventure": "Alto's Adventure",
+    "altos-odyssey": "Alto's Odyssey",
+    "vivaldi-snapshot": "Vivaldi Snapshot",
+    "minecraft-pe-mods": "MC PE Mods",
 }
 
 APKMIRROR_APPS: list[str] = [
@@ -55,6 +61,12 @@ APKMIRROR_APPS: list[str] = [
     "proton-pass",
     "notesnook",
     "termius",
+    "lara-croft-gol",
+    "prince-of-persia-lost-crown",
+    "altos-adventure",
+    "altos-odyssey",
+    "vivaldi-snapshot",
+    "minecraft-pe-mods",
 ]
 
 APPS_CONFIG: dict[str, AppConfig] = {
@@ -246,6 +258,54 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "icon": "https://www.google.com/s2/favicons?sz=128&domain=termius.com",
         "exclude": [],
     },
+    "lara-croft-gol": {
+        "pkg": "com.feralinteractive.laracroftgol_android",
+        "name": "lara-croft-gol",
+        "patch_source": "miguel",
+        "arch": "arm64-v8a",
+        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2026/01/18/697d152e0cf3c_com.feralinteractive.laracroftgol_android-384x384.png",
+        "exclude": [],
+    },
+    "prince-of-persia-lost-crown": {
+        "pkg": "com.ubisoft.princeofpersia.thelostcrown.mobile.action.adventure.platform",
+        "name": "prince-of-persia-lost-crown",
+        "patch_source": "okish",
+        "arch": "arm64-v8a",
+        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2025/04/30/67fca16044b6b_com.ubisoft.princeofpersia.thelostcrown.mobile.action.adventure.platform-384x384.png",
+        "exclude": [],
+    },
+    "altos-adventure": {
+        "pkg": "com.noodlecake.altosadventure",
+        "name": "altos-adventure",
+        "patch_source": "okish",
+        "arch": "arm64-v8a",
+        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2018/09/5ba11f323acd8-384x384.png",
+        "exclude": [],
+    },
+    "altos-odyssey": {
+        "pkg": "com.noodlecake.altosodyssey",
+        "name": "altos-odyssey",
+        "patch_source": "okish",
+        "arch": "arm64-v8a",
+        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2020/07/96/5f1b0fa2c0f2c-384x384.png",
+        "exclude": [],
+    },
+    "vivaldi-snapshot": {
+        "pkg": "com.vivaldi.browser.snapshot",
+        "name": "vivaldi-snapshot",
+        "patch_source": "kveld",
+        "arch": "arm64-v8a",
+        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2023/10/19/652f7f4248aae_com.vivaldi.browser.snapshot-384x384.png",
+        "exclude": [],
+    },
+    "minecraft-pe-mods": {
+        "pkg": "com.ultimategamestudio.mcpecenter.mods",
+        "name": "minecraft-pe-mods",
+        "patch_source": "alastor",
+        "arch": "arm64-v8a",
+        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2023/08/66/64f1be78c1024_com.ultimategamestudio.mcpecenter.mods-384x384.png",
+        "exclude": [],
+    },
 }
 
 PROCESS_ORDER: list[str] = [
@@ -270,6 +330,12 @@ PROCESS_ORDER: list[str] = [
     "proton-pass",
     "notesnook",
     "termius",
+    "lara-croft-gol",
+    "prince-of-persia-lost-crown",
+    "altos-adventure",
+    "altos-odyssey",
+    "vivaldi-snapshot",
+    "minecraft-pe-mods",
 ]
 
 PATCH_SOURCES: dict[str, tuple[str, str, str]] = {
@@ -285,6 +351,10 @@ PATCH_SOURCES: dict[str, tuple[str, str, str]] = {
     "jasonwu": ("jasonwu1994", "Gboard-patches", "⌨️ JasonWu Gboard"),
     "hxreborn": ("hxreborn", "morphe-patches", "🔥 hxreborn"),
     "hxreborn-tiktok": ("hxreborn", "hxreborn-tiktok-patches", "🔥 hxreborn TikTok"),
+    "miguel": ("MiguelNinja19", "miguel-morphe-patches", "🥷 Miguel"),
+    "okish": ("byehi98", "okish-morphe-patches", "🎮 Okish"),
+    "kveld": ("kveld9", "kveld-morphe-patches", "🌙 Kveld"),
+    "alastor": ("Alastor-Kaneki", "Morphe-Patches", "👹 Alastor"),
 }
 
 
