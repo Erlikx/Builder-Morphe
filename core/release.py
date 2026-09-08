@@ -35,7 +35,7 @@ async def create_new_release(tag: str, release_name: str, release_body: str = ""
                 "name": release_name,
                 "body": release_body,
                 "draft": draft,
-                "prerelease": False,
+                "prerelease": True,
                 "make_latest": "false" if draft else "true",
             },
         )
