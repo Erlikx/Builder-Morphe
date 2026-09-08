@@ -38,12 +38,12 @@ DISPLAY_NAMES: dict[str, str] = {
     "notesnook": "Notesnook",
     "termius": "Termius",
     "twitter-x": "Twitter-X",
-    "lara-croft-gol": "Lara Croft: GoL",
-    "prince-of-persia-lost-crown": "PoP: Lost Crown",
+    "lara-croft-gol": "Lara Croft GOL",
+    "pop-lost-crown": "Prince of Persia - Lost Crown",
     "altos-adventure": "Alto's Adventure",
     "altos-odyssey": "Alto's Odyssey",
     "vivaldi-snapshot": "Vivaldi Snapshot",
-    "minecraft-pe-mods": "MC PE Mods",
+    "mcpe-mods": "MCPE Mods AddOns",
 }
 
 APKMIRROR_APPS: list[str] = [
@@ -62,11 +62,11 @@ APKMIRROR_APPS: list[str] = [
     "notesnook",
     "termius",
     "lara-croft-gol",
-    "prince-of-persia-lost-crown",
+    "pop-lost-crown",
     "altos-adventure",
     "altos-odyssey",
     "vivaldi-snapshot",
-    "minecraft-pe-mods",
+    "mcpe-mods",
 ]
 
 APPS_CONFIG: dict[str, AppConfig] = {
@@ -261,50 +261,50 @@ APPS_CONFIG: dict[str, AppConfig] = {
     "lara-croft-gol": {
         "pkg": "com.feralinteractive.laracroftgol_android",
         "name": "lara-croft-gol",
-        "patch_source": "miguel",
+        "patch_source": "miguelninja",
         "arch": "arm64-v8a",
-        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2026/01/18/697d152e0cf3c_com.feralinteractive.laracroftgol_android-384x384.png",
-        "exclude": [],
+        "icon": "https://www.google.com/s2/favicons?sz=128&domain=feralinteractive.com",
+        "force_version": "1.2.7rc2",
     },
-    "prince-of-persia-lost-crown": {
+    "pop-lost-crown": {
         "pkg": "com.ubisoft.princeofpersia.thelostcrown.mobile.action.adventure.platform",
-        "name": "prince-of-persia-lost-crown",
+        "name": "pop-lost-crown",
         "patch_source": "okish",
         "arch": "arm64-v8a",
-        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2025/04/30/67fca16044b6b_com.ubisoft.princeofpersia.thelostcrown.mobile.action.adventure.platform-384x384.png",
-        "exclude": [],
+        "icon": "https://www.google.com/s2/favicons?sz=128&domain=ubisoft.com",
+        "force_version": "1.1.9",
     },
     "altos-adventure": {
         "pkg": "com.noodlecake.altosadventure",
         "name": "altos-adventure",
         "patch_source": "okish",
         "arch": "arm64-v8a",
-        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2018/09/5ba11f323acd8-384x384.png",
-        "exclude": [],
+        "icon": "https://www.google.com/s2/favicons?sz=128&domain=altosadventure.com",
+        "force_version": "1.8.27",
     },
     "altos-odyssey": {
         "pkg": "com.noodlecake.altosodyssey",
         "name": "altos-odyssey",
         "patch_source": "okish",
         "arch": "arm64-v8a",
-        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2020/07/96/5f1b0fa2c0f2c-384x384.png",
-        "exclude": [],
+        "icon": "https://www.google.com/s2/favicons?sz=128&domain=altosodyssey.com",
+        "force_version": "1.0.42",
     },
     "vivaldi-snapshot": {
         "pkg": "com.vivaldi.browser.snapshot",
         "name": "vivaldi-snapshot",
         "patch_source": "kveld",
         "arch": "arm64-v8a",
-        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2023/10/19/652f7f4248aae_com.vivaldi.browser.snapshot-384x384.png",
-        "exclude": [],
+        "icon": "https://www.google.com/s2/favicons?sz=128&domain=vivaldi.com",
+        "force_version": "8.2.4147.41",
     },
-    "minecraft-pe-mods": {
+    "mcpe-mods": {
         "pkg": "com.ultimategamestudio.mcpecenter.mods",
-        "name": "minecraft-pe-mods",
+        "name": "mcpe-mods",
         "patch_source": "alastor",
         "arch": "arm64-v8a",
-        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2023/08/66/64f1be78c1024_com.ultimategamestudio.mcpecenter.mods-384x384.png",
-        "exclude": [],
+        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2023/08/66/64f1be78c1024_com.ultimategamestudio.mcpecenter.mods.png",
+        "force_version": "2.5.0",
     },
 }
 
@@ -331,11 +331,11 @@ PROCESS_ORDER: list[str] = [
     "notesnook",
     "termius",
     "lara-croft-gol",
-    "prince-of-persia-lost-crown",
+    "pop-lost-crown",
     "altos-adventure",
     "altos-odyssey",
     "vivaldi-snapshot",
-    "minecraft-pe-mods",
+    "mcpe-mods",
 ]
 
 PATCH_SOURCES: dict[str, tuple[str, str, str]] = {
@@ -351,10 +351,10 @@ PATCH_SOURCES: dict[str, tuple[str, str, str]] = {
     "jasonwu": ("jasonwu1994", "Gboard-patches", "⌨️ JasonWu Gboard"),
     "hxreborn": ("hxreborn", "morphe-patches", "🔥 hxreborn"),
     "hxreborn-tiktok": ("hxreborn", "hxreborn-tiktok-patches", "🔥 hxreborn TikTok"),
-    "miguel": ("MiguelNinja19", "miguel-morphe-patches", "🥷 Miguel"),
-    "okish": ("byehi98", "okish-morphe-patches", "🎮 Okish"),
+    "miguelninja": ("MiguelNinja19", "miguel-morphe-patches", "🥷 MiguelNinja"),
+    "okish": ("byehi98", "okish-morphe-patches", "👌 Okish"),
     "kveld": ("kveld9", "kveld-morphe-patches", "🌙 Kveld"),
-    "alastor": ("Alastor-Kaneki", "Morphe-Patches", "👹 Alastor"),
+    "alastor": ("Alastor-Kaneki", "Morphe-Patches", "🎭 Alastor"),
 }
 
 
