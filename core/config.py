@@ -296,7 +296,7 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "patch_source": "kveld",
         "arch": "arm64-v8a",
         "icon": "https://www.google.com/s2/favicons?sz=128&domain=vivaldi.com",
-        "force_version": "8.2.4147.41",
+        "force_version": "8.2.4147.28",
     },
     "mcpe-mods": {
         "pkg": "com.ultimategamestudio.mcpecenter.mods",
