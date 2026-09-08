@@ -88,11 +88,11 @@ jobs:
           - notesnook
           - termius
           - lara-croft-gol
-          - prince-of-persia-lost-crown
+          - pop-lost-crown
           - altos-adventure
           - altos-odyssey
           - vivaldi-snapshot
-          - minecraft-pe-mods
+          - mcpe-mods
 
     steps:
       - name: Checkout
