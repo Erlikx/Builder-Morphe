@@ -42,7 +42,6 @@ DISPLAY_NAMES: dict[str, str] = {
     "pop-lost-crown": "Prince of Persia - Lost Crown",
     "altos-adventure": "Alto's Adventure",
     "altos-odyssey": "Alto's Odyssey",
-    "vivaldi-snapshot": "Vivaldi Snapshot",
     "mcpe-mods": "MCPE Mods AddOns",
 }
 
@@ -65,7 +64,6 @@ APKMIRROR_APPS: list[str] = [
     "pop-lost-crown",
     "altos-adventure",
     "altos-odyssey",
-    "vivaldi-snapshot",
     "mcpe-mods",
 ]
 
@@ -291,14 +289,6 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "icon": "https://www.google.com/s2/favicons?sz=128&domain=altosodyssey.com",
         "force_version": "1.0.42",
     },
-    "vivaldi-snapshot": {
-        "pkg": "com.vivaldi.browser.snapshot",
-        "name": "vivaldi-snapshot",
-        "patch_source": "kveld",
-        "arch": "arm64-v8a",
-        "icon": "https://www.google.com/s2/favicons?sz=128&domain=vivaldi.com",
-        "force_version": "8.2.4143.3",
-    },
     "mcpe-mods": {
         "pkg": "com.ultimategamestudio.mcpecenter.mods",
         "name": "mcpe-mods",
@@ -335,7 +325,6 @@ PROCESS_ORDER: list[str] = [
     "pop-lost-crown",
     "altos-adventure",
     "altos-odyssey",
-    "vivaldi-snapshot",
     "mcpe-mods",
 ]
 
@@ -354,7 +343,6 @@ PATCH_SOURCES: dict[str, tuple[str, str, str]] = {
     "hxreborn-tiktok": ("hxreborn", "hxreborn-tiktok-patches", "🔥 hxreborn TikTok"),
     "miguelninja": ("MiguelNinja19", "miguel-morphe-patches", "🥷 MiguelNinja"),
     "okish": ("byehi98", "okish-morphe-patches", "👌 Okish"),
-    "kveld": ("kveld9", "kveld-morphe-patches", "🌙 Kveld"),
     "alastor": ("Alastor-Kaneki", "Morphe-Patches", "🎭 Alastor"),
 }
 
