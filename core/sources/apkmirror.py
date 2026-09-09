@@ -202,7 +202,12 @@ async def _apply_global_cooldown():
 
 
 async def _goto(
-    tab, url: str, wait: float = 1.2, challenge_retries: int = 3, label: str = "page", deadline: float | None = None
+    tab,
+    url: str,
+    wait: float = 1.2,
+    challenge_retries: int = 3,
+    label: str = "page",
+    deadline: float | None = None,
 ):
     global _challenge_hits, _cooldown_until
 
