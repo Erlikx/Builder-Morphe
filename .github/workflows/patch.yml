@@ -91,7 +91,6 @@ jobs:
           - pop-lost-crown
           - altos-adventure
           - altos-odyssey
-          - vivaldi-snapshot
           - mcpe-mods
 
     steps:
