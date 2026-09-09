@@ -38,11 +38,6 @@ DISPLAY_NAMES: dict[str, str] = {
     "notesnook": "Notesnook",
     "termius": "Termius",
     "twitter-x": "Twitter-X",
-    "lara-croft-gol": "Lara Croft GOL",
-    "pop-lost-crown": "Prince of Persia - Lost Crown",
-    "altos-adventure": "Alto's Adventure",
-    "altos-odyssey": "Alto's Odyssey",
-    "mcpe-mods": "MCPE Mods AddOns",
 }
 
 APKMIRROR_APPS: list[str] = [
@@ -60,11 +55,6 @@ APKMIRROR_APPS: list[str] = [
     "proton-pass",
     "notesnook",
     "termius",
-    "lara-croft-gol",
-    "pop-lost-crown",
-    "altos-adventure",
-    "altos-odyssey",
-    "mcpe-mods",
 ]
 
 APPS_CONFIG: dict[str, AppConfig] = {
@@ -116,7 +106,7 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "name": "twitter",
         "patch_source": ["piko-newx", "morphe"],
         "arch": "arm64-v8a",
-        "force_version": "12.23.1-prod.01",
+        "force_version": "12.24.0-prod.02",
         "enable": ["Disable Play Store updates"],
         "icon": "https://cdn.simpleicons.org/x/000000",
     },
@@ -257,46 +247,6 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "icon": "https://www.google.com/s2/favicons?sz=128&domain=termius.com",
         "exclude": [],
     },
-    "lara-croft-gol": {
-        "pkg": "com.feralinteractive.laracroftgol_android",
-        "name": "lara-croft-gol",
-        "patch_source": "miguelninja",
-        "arch": "arm64-v8a",
-        "icon": "https://www.google.com/s2/favicons?sz=128&domain=feralinteractive.com",
-        "force_version": "1.2.7rc2",
-    },
-    "pop-lost-crown": {
-        "pkg": "com.ubisoft.princeofpersia.thelostcrown.mobile.action.adventure.platform",
-        "name": "pop-lost-crown",
-        "patch_source": "okish",
-        "arch": "arm64-v8a",
-        "icon": "https://www.google.com/s2/favicons?sz=128&domain=ubisoft.com",
-        "force_version": "1.1.9",
-    },
-    "altos-adventure": {
-        "pkg": "com.noodlecake.altosadventure",
-        "name": "altos-adventure",
-        "patch_source": "okish",
-        "arch": "arm64-v8a",
-        "icon": "https://www.google.com/s2/favicons?sz=128&domain=altosadventure.com",
-        "force_version": "1.8.27",
-    },
-    "altos-odyssey": {
-        "pkg": "com.noodlecake.altosodyssey",
-        "name": "altos-odyssey",
-        "patch_source": "okish",
-        "arch": "arm64-v8a",
-        "icon": "https://www.google.com/s2/favicons?sz=128&domain=altosodyssey.com",
-        "force_version": "1.0.42",
-    },
-    "mcpe-mods": {
-        "pkg": "com.ultimategamestudio.mcpecenter.mods",
-        "name": "mcpe-mods",
-        "patch_source": "alastor",
-        "arch": "arm64-v8a",
-        "icon": "https://downloadr2.apkmirror.com/wp-content/uploads/2023/08/66/64f1be78c1024_com.ultimategamestudio.mcpecenter.mods.png",
-        "force_version": "2.5.0",
-    },
 }
 
 PROCESS_ORDER: list[str] = [
@@ -321,11 +271,6 @@ PROCESS_ORDER: list[str] = [
     "proton-pass",
     "notesnook",
     "termius",
-    "lara-croft-gol",
-    "pop-lost-crown",
-    "altos-adventure",
-    "altos-odyssey",
-    "mcpe-mods",
 ]
 
 PATCH_SOURCES: dict[str, tuple[str, str, str]] = {
@@ -341,9 +286,6 @@ PATCH_SOURCES: dict[str, tuple[str, str, str]] = {
     "jasonwu": ("jasonwu1994", "Gboard-patches", "⌨️ JasonWu Gboard"),
     "hxreborn": ("hxreborn", "morphe-patches", "🔥 hxreborn"),
     "hxreborn-tiktok": ("hxreborn", "hxreborn-tiktok-patches", "🔥 hxreborn TikTok"),
-    "miguelninja": ("MiguelNinja19", "miguel-morphe-patches", "🥷 MiguelNinja"),
-    "okish": ("byehi98", "okish-morphe-patches", "👌 Okish"),
-    "alastor": ("Alastor-Kaneki", "Morphe-Patches", "🎭 Alastor"),
 }
 
 
