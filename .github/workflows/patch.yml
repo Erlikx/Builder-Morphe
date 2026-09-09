@@ -87,11 +87,6 @@ jobs:
           - proton-pass
           - notesnook
           - termius
-          - lara-croft-gol
-          - pop-lost-crown
-          - altos-adventure
-          - altos-odyssey
-          - mcpe-mods
 
     steps:
       - name: Checkout
