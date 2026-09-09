@@ -91,7 +91,7 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "name": "reddit",
         "patch_source": "morphe",
         "arch": "arm64-v8a",
-        "enable: ["Clone app", "Change installer source"],
+        "enable": ["Clone app", "Change installer source"],
         "icon": "https://cdn.simpleicons.org/reddit/FF4500",
         "exclude": [],
     },
