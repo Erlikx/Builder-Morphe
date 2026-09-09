@@ -83,6 +83,8 @@ def _build_user_agent(chrome_path: str | None) -> str:
 
 DIAGNOSTICS_DIR = Path(__file__).resolve().parent.parent.parent / "diagnostics"
 
+RESOLVE_BUDGET_SECONDS = 300.0
+
 _CHALLENGE_MARKERS = [
     "just a moment",
     "checking your browser",
@@ -199,7 +201,9 @@ async def _apply_global_cooldown():
         await asyncio.sleep(remaining)
 
 
-async def _goto(tab, url: str, wait: float = 1.2, challenge_retries: int = 3, label: str = "page"):
+async def _goto(
+    tab, url: str, wait: float = 1.2, challenge_retries: int = 3, label: str = "page", deadline: float | None = None
+):
     global _challenge_hits, _cooldown_until
 
     await _apply_global_cooldown()
@@ -213,7 +217,9 @@ async def _goto(tab, url: str, wait: float = 1.2, challenge_retries: int = 3, la
             cooldown_len = min(15.0 * (2 ** (_challenge_hits - 1)), 120.0)
             _cooldown_until = time.monotonic() + cooldown_len
 
-            if attempt < challenge_retries:
+            out_of_budget = deadline is not None and time.monotonic() + cooldown_len >= deadline
+
+            if attempt < challenge_retries and not out_of_budget:
                 log.warn(
                     f"Cloudflare challenge detected ({label}), cooling down {cooldown_len:.0f}s "
                     f"before retrying (challenge #{_challenge_hits} this run)..."
@@ -248,9 +254,9 @@ async def _is_404_page(tab) -> bool:
     )
 
 
-async def _page_exists(tab, url: str) -> bool:
+async def _page_exists(tab, url: str, deadline: float | None = None) -> bool:
     try:
-        await _goto(tab, url, wait=1.0, label="direct-try")
+        await _goto(tab, url, wait=1.0, label="direct-try", deadline=deadline)
         if await _is_404_page(tab):
             return False
         return (await _row_count(tab)) > 0
@@ -258,22 +264,54 @@ async def _page_exists(tab, url: str) -> bool:
         return False
 
 
-async def _resolve_list_url(tab, app_config: dict, version: str) -> str:
+async def _has_download_button(tab) -> bool:
+    try:
+        result = await tab.evaluate("document.querySelectorAll('a.downloadButton').length")
+        return int(result or 0) > 0
+    except Exception:
+        return False
+
+
+async def _resolve_list_url(tab, app_config: dict, version: str) -> tuple[str, bool]:
     version_slug = to_apkmirror_version(version)
     name_part = app_config.get("release_slug") or app_config["slug"]
     folder_url = f"https://www.apkmirror.com/apk/{app_config['org']}/{app_config['slug']}"
+    deadline = time.monotonic() + RESOLVE_BUDGET_SECONDS
 
-    candidates = [
-        f"{folder_url}/{name_part}-{version_slug}-release/",
-        f"{folder_url}/{name_part}-{version_slug}-release-0-release/",
-        f"{folder_url}/{name_part}-{version_slug}-beta-0-release/",
-        f"{folder_url}/{name_part}-{version_slug}-beta-1-release/",
+    release_slugs = [
+        f"{name_part}-{version_slug}-release",
+        f"{name_part}-{version_slug}-release-0-release",
+        f"{name_part}-{version_slug}-beta-0-release",
+        f"{name_part}-{version_slug}-beta-1-release",
     ]
 
-    for candidate in candidates:
+    for slug in release_slugs:
+        if time.monotonic() > deadline:
+            break
+
+        candidate = f"{folder_url}/{slug}/"
         log.search(f"TRY: {candidate}")
-        if await _page_exists(tab, candidate):
-            return candidate
+        if await _page_exists(tab, candidate, deadline=deadline):
+            return candidate, False
+
+        if time.monotonic() > deadline:
+            break
+
+        direct_variant = f"{candidate}{name_part}-{version_slug}-android-apk-download/"
+        log.search(f"TRY (single-variant direct): {direct_variant}")
+        try:
+            await _goto(tab, direct_variant, wait=1.0, label="direct-variant-try", deadline=deadline)
+            if not await _is_404_page(tab) and await _has_download_button(tab):
+                return direct_variant, True
+        except Exception:
+            pass
+
+    if time.monotonic() > deadline:
+        await _save_diagnostic_screenshot(tab, f"budget-exceeded-{app_config['slug']}")
+        raise RuntimeError(
+            f"Giving up on {app_config['slug']} v{version}: APKMirror kept challenge-walling every "
+            f"attempt (exceeded {RESOLVE_BUDGET_SECONDS:.0f}s resolve budget)"
+        )
 
     log.search("No direct match, scanning app listing page...")
     listing_url = f"{folder_url}/"
@@ -282,16 +320,21 @@ async def _resolve_list_url(tab, app_config: dict, version: str) -> str:
     js = f"""
     (() => {{
         const links = Array.from(document.querySelectorAll("a[href*='-release/']"));
-        const match = links.find(a => a.getAttribute('href').includes({json.dumps(slug_part)}));
+        const match = links.find(a => {{
+            const href = a.getAttribute('href');
+            return href.includes({json.dumps(slug_part)}) && !href.includes('#');
+        }});
         return match ? match.href : null;
     }})()
     """
 
     for attempt in range(2):
-        await _goto(tab, listing_url, wait=1.5 + attempt, label="listing-scan")
+        if time.monotonic() > deadline:
+            break
+        await _goto(tab, listing_url, wait=1.5 + attempt, label="listing-scan", deadline=deadline)
         found_url = await tab.evaluate(js)
         if found_url:
-            return found_url
+            return found_url, False
 
     await _save_diagnostic_screenshot(tab, f"no-match-{app_config['slug']}")
     raise RuntimeError(f"No APKMirror release page found for version {version}")
@@ -423,27 +466,30 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
     try:
         await _enable_downloads(tab, out_dir)
 
-        list_url = await _resolve_list_url(tab, app_config, version)
+        list_url, is_final = await _resolve_list_url(tab, app_config, version)
         log.info(f"LIST: {list_url}")
 
-        variant_url = None
-        for attempt in range(4):
-            await _goto(tab, list_url, wait=1.5 + attempt * 1.0, label="list-page")
-            variant_url = await _extract_variant_url(tab, force_build, app_name)
-            if variant_url:
-                break
-            log.warn(f"No matching row found on page, retrying ({attempt + 1}/4)...")
+        if is_final:
+            variant_url = list_url
+            log.info(f"VARIANT: {variant_url} (single-variant release, page already loaded)")
+        else:
+            variant_url = None
+            for attempt in range(4):
+                await _goto(tab, list_url, wait=1.5 + attempt * 1.0, label="list-page")
+                variant_url = await _extract_variant_url(tab, force_build, app_name)
+                if variant_url:
+                    break
+                log.warn(f"No matching row found on page, retrying ({attempt + 1}/4)...")
 
-        if not variant_url:
-            await _dump_variant_rows_for_debug(tab)
-            await _save_diagnostic_screenshot(tab, f"no-variant-{app_name}")
-            raise RuntimeError("No matching variant found on APKMirror")
-        if variant_url.startswith("/"):
-            variant_url = "https://www.apkmirror.com" + variant_url
+            if not variant_url:
+                await _dump_variant_rows_for_debug(tab)
+                await _save_diagnostic_screenshot(tab, f"no-variant-{app_name}")
+                raise RuntimeError("No matching variant found on APKMirror")
+            if variant_url.startswith("/"):
+                variant_url = "https://www.apkmirror.com" + variant_url
 
-        log.info(f"VARIANT: {variant_url}")
-
-        await _goto(tab, variant_url, wait=1.2, label="variant-page")
+            log.info(f"VARIANT: {variant_url}")
+            await _goto(tab, variant_url, wait=1.2, label="variant-page")
 
         existing_before = {f.name for f in out_dir.iterdir() if f.is_file()}
 
