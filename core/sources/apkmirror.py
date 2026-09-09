@@ -56,7 +56,6 @@ APP_SITES = {
     "pop-lost-crown": {"org": "ubisoft-entertainment", "slug": "prince-of-persia-lost-crown"},
     "altos-adventure": {"org": "noodlecake-studios-inc", "slug": "altos-adventure"},
     "altos-odyssey": {"org": "noodlecake-studios-inc", "slug": "altos-odyssey"},
-    "vivaldi-snapshot": {"org": "vivaldi-technologies", "slug": "vivaldi-browser-snapshot"},
     "mcpe-mods": {"org": "joycraft-mobile", "slug": "mods-addons-for-minecraft-pe"},
 }
 
