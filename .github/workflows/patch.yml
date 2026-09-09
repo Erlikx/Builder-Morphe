@@ -63,7 +63,7 @@ jobs:
 
     strategy:
       fail-fast: false
-      max-parallel: 20
+      max-parallel: 30
       matrix:
         app:
           - youtube
