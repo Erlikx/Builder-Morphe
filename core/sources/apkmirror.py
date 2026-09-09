@@ -52,11 +52,6 @@ APP_SITES = {
         "slug": "termius-ssh-telnet-client",
         "release_slug": "termius-modern-ssh-client",
     },
-    "lara-croft-gol": {"org": "feral-interactive", "slug": "lara-croft-guardian-of-light"},
-    "pop-lost-crown": {"org": "ubisoft-entertainment", "slug": "prince-of-persia-lost-crown"},
-    "altos-adventure": {"org": "noodlecake-studios-inc", "slug": "altos-adventure"},
-    "altos-odyssey": {"org": "noodlecake-studios-inc", "slug": "altos-odyssey"},
-    "mcpe-mods": {"org": "joycraft-mobile", "slug": "mods-addons-for-minecraft-pe"},
 }
 
 _CHROME_VERSION_RE = re.compile(r"(\d+\.\d+\.\d+\.\d+)")
