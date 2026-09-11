@@ -495,9 +495,10 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             await _goto(page, variant_url, wait=1.2, label="variant-page")
 
         log.browser("Clicking main download button...")
+        assert variant_url is not None
         download = None
         try:
-            async for attempt in AsyncRetrying(
+            async for retry_attempt in AsyncRetrying(
                 stop=stop_after_attempt(4),
                 wait=_ChallengeCooldownWait(),
                 retry=retry_if_exception_type(_ChallengePresent),
@@ -508,8 +509,8 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
                 ),
                 reraise=True,
             ):
-                with attempt:
-                    if attempt.retry_state.attempt_number > 1:
+                with retry_attempt:
+                    if retry_attempt.retry_state.attempt_number > 1:
                         await _goto(page, variant_url, wait=1.2, label="variant-page-retry")
                         log.browser("Clicking main download button...")
                     download = await _attempt_download(page)
