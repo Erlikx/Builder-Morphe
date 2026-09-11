@@ -3,7 +3,8 @@ from pathlib import Path
 
 from tenacity import retry, stop_after_attempt
 
-from . import log, retry as retry_conf
+from . import log
+from . import retry as retry_conf
 from .http import new_session
 from .settings import settings
 
