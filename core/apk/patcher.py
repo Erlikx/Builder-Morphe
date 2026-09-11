@@ -70,7 +70,7 @@ def patch_apk(
 
     output_lines = []
     for line in process.stdout:
-        print(log.colorize_patch_line(line), end="", flush=True)
+        log.patch_line(line)
         output_lines.append(line)
 
     process.wait()
