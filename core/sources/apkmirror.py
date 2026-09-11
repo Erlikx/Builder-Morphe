@@ -441,6 +441,23 @@ async def _click_and_download(page: Page, selector: str, timeout_ms: float):
         return None
 
 
+async def _attempt_download(page: Page):
+    download = await _click_and_download(page, "a.downloadButton", timeout_ms=20_000)
+
+    if download is None:
+        log.warn("Direct download did not start, waiting for confirm page...")
+        await _jitter_sleep(1.5)
+
+        if await page.locator("#download-link").count() > 0:
+            log.browser("Clicking final download link...")
+            download = await _click_and_download(page, "#download-link", timeout_ms=60_000)
+
+    if download is None and await _is_challenge_page(page):
+        raise _ChallengePresent(_register_challenge())
+
+    return download
+
+
 async def download_apk(version: str, app_name: str = "youtube", force_build: str | None = None) -> str:
     app_config = APP_SITES.get(app_name)
     if not app_config:
@@ -478,15 +495,26 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
             await _goto(page, variant_url, wait=1.2, label="variant-page")
 
         log.browser("Clicking main download button...")
-        download = await _click_and_download(page, "a.downloadButton", timeout_ms=20_000)
-
-        if download is None:
-            log.warn("Direct download did not start, waiting for confirm page...")
-            await _jitter_sleep(1.5)
-
-            if await page.locator("#download-link").count() > 0:
-                log.browser("Clicking final download link...")
-                download = await _click_and_download(page, "#download-link", timeout_ms=60_000)
+        download = None
+        try:
+            async for attempt in AsyncRetrying(
+                stop=stop_after_attempt(4),
+                wait=_ChallengeCooldownWait(),
+                retry=retry_if_exception_type(_ChallengePresent),
+                before_sleep=lambda rs: log.warn(
+                    f"Cloudflare challenge on download click, cooling down "
+                    f"{(rs.next_action.sleep if rs.next_action else 0):.0f}s before retrying "
+                    f"(challenge #{_challenge_hits} this run)..."
+                ),
+                reraise=True,
+            ):
+                with attempt:
+                    if attempt.retry_state.attempt_number > 1:
+                        await _goto(page, variant_url, wait=1.2, label="variant-page-retry")
+                        log.browser("Clicking main download button...")
+                    download = await _attempt_download(page)
+        except _ChallengePresent:
+            pass
 
         if download is None:
             log.error(f"Download did not start. Current page: {(await page.title())!r} @ {page.url}")
