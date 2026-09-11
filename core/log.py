@@ -17,6 +17,10 @@ for _name, _color, _icon in [
     ("LOCK", "<blue>", "🔐"),
     ("SAVED", "<green>", "💾"),
     ("WAIT", "<yellow>", "⏳"),
+    # Below: classifications for morphe-desktop's own per-line passthrough
+    # output (see patch_line()) - not messages we emit ourselves.
+    ("APPLIED", "<cyan>", "✅"),
+    ("SKIPPED", "<red>", "⏭️"),
 ]:
     logger.level(_name, no=21, color=_color, icon=_icon)
 
@@ -109,51 +113,56 @@ def error(msg: str) -> None:
     logger.error(msg)
 
 
-class _C:
-    RESET = "\033[0m"
-    RED = "\033[31m"
-    GREEN = "\033[32m"
-    YELLOW = "\033[33m"
-    BLUE = "\033[34m"
-    CYAN = "\033[36m"
-    GRAY = "\033[90m"
+# ---------------------------------------------------------------------------
+# Patch-tool output passthrough. The Java patcher (morphe-desktop) prints its
+# OWN lines (ERROR: ..., INFO: Applied: ..., ...) as it runs. patch_line()
+# classifies each one and re-emits it through the SAME loguru sink as every
+# other message in this module (header/step/download/... above), instead of
+# hand-rolled raw \033[..m ANSI wrapping. The hand-rolled version wasn't
+# rendering reliably in this project's GitHub Actions log viewer - every
+# category came out uncolored, not just the ones with an anchoring bug -
+# while loguru's own sink (proven working for step/download/success/etc.)
+# renders fine there, so this routes through that instead of debugging the
+# raw-ANSI path further.
 
-
-def _wrap(text: str, *codes: str) -> str:
-    if not _COLOR_ENABLED:
-        return text
-    return f"{''.join(codes)}{text}{_C.RESET}"
-
-
-_PATCH_LINE_RULES: list[tuple[re.Pattern, str, str]] = [
-    (re.compile(r"^ERROR", re.IGNORECASE), "❌ ", _C.RED),
-    (re.compile(r"^WARN", re.IGNORECASE), "⚠️  ", _C.YELLOW),
-    (re.compile(r"applying \d+ patches", re.IGNORECASE), "🩹 ", _C.CYAN),
-    (re.compile(r"executing patches", re.IGNORECASE), "⚙️  ", _C.CYAN),
-    (re.compile(r"^INFO:\s*Applied:", re.IGNORECASE), "✅ ", _C.GREEN),
-    (re.compile(r"^INFO:\s*Saved to", re.IGNORECASE), "💾 ", _C.GREEN),
-    (re.compile(r"compiling patched dex", re.IGNORECASE), "🛠️  ", _C.CYAN),
-    (re.compile(r"stripping libs|stripped \d+ lib", re.IGNORECASE), "✂️  ", _C.CYAN),
-    (re.compile(r"aligning apk", re.IGNORECASE), "📐 ", _C.CYAN),
-    (re.compile(r"signing apk", re.IGNORECASE), "🔏 ", _C.CYAN),
-    (re.compile(r"purged .*temp files", re.IGNORECASE), "🧹 ", _C.GRAY),
-    (re.compile(r"^\S[\w .\-']*: patched \d+ ", re.IGNORECASE), "🎨 ", _C.GREEN),
-    (re.compile(r"^INFO:\s*Skipping disabled", re.IGNORECASE), "⏭️  ", _C.GRAY),
-    (re.compile(r"^INFO:", re.IGNORECASE), "ℹ️  ", _C.BLUE),
-]
-
+# The CLI already prefixes many of its own lines with its own icon (e.g.
+# "✅ INFO: Applied: ...", "⏭️  INFO: Skipping disabled: ...", "ℹ️  INFO:
+# Loading patches..."). Stripped here so the rules below (which look for
+# "INFO:", "WARN", "ERROR" at the start of the text) see the real text
+# instead of that icon, and so the final line carries exactly one (ours)
+# icon instead of two. Deliberately [^A-Za-z]+ rather than [^\w]+: some of
+# the CLI's icons (e.g. "ℹ") are, surprisingly, matched by \w under
+# Python's Unicode regex rules, which would leave them un-stripped.
 _LEADING_ICON_RE = re.compile(r"^[^A-Za-z]+")
 
+_PATCH_LINE_RULES: list[tuple[re.Pattern, str]] = [
+    (re.compile(r"^ERROR", re.IGNORECASE), "ERROR"),
+    (re.compile(r"^WARN", re.IGNORECASE), "WARNING"),
+    (re.compile(r"applying \d+ patches", re.IGNORECASE), "PATCH"),
+    (re.compile(r"executing patches", re.IGNORECASE), "PATCH"),
+    (re.compile(r"^INFO:\s*Applied:", re.IGNORECASE), "APPLIED"),
+    (re.compile(r"^INFO:\s*Saved to", re.IGNORECASE), "SAVED"),
+    (re.compile(r"compiling patched dex", re.IGNORECASE), "PATCH"),
+    (re.compile(r"stripping libs|stripped \d+ lib", re.IGNORECASE), "PATCH"),
+    (re.compile(r"aligning apk", re.IGNORECASE), "PATCH"),
+    (re.compile(r"signing apk", re.IGNORECASE), "PATCH"),
+    (re.compile(r"purged .*temp files", re.IGNORECASE), "STEP"),
+    (re.compile(r"^\S[\w .\-']*: patched \d+ ", re.IGNORECASE), "APPLIED"),
+    (re.compile(r"^INFO:\s*Skipping disabled", re.IGNORECASE), "SKIPPED"),
+    (re.compile(r"^INFO:", re.IGNORECASE), "INFO"),
+]
 
-def colorize_patch_line(line: str) -> str:
+
+def patch_line(line: str) -> None:
     stripped = line.rstrip("\n")
     if not stripped.strip():
-        return line
+        return
 
     text = _LEADING_ICON_RE.sub("", stripped)
 
-    for pattern, icon, color in _PATCH_LINE_RULES:
+    for pattern, level in _PATCH_LINE_RULES:
         if pattern.search(text):
-            return _wrap(f"{icon}{text}", color) + "\n" if line.endswith("\n") else _wrap(f"{icon}{text}", color)
+            logger.log(level, text)
+            return
 
-    return line
+    logger.log("INFO", text)
