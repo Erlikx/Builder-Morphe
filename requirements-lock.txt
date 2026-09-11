@@ -1,4 +1,4 @@
-alembic==1.19.2
+alembic==1.20.0
 androguard==4.1.4
 annotated-types==0.8.0
 apify_fingerprint_datapoints==0.15.0
