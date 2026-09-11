@@ -8,12 +8,14 @@ from pathlib import Path
 from typing import Any
 
 from camoufox.async_api import AsyncCamoufox
-from playwright.async_api import Page, TimeoutError as PlaywrightTimeoutError
+from playwright.async_api import Page
+from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from tenacity import AsyncRetrying, retry, retry_if_exception_type, stop_after_attempt
 from tenacity.stop import stop_base
 from tenacity.wait import wait_base
 
-from .. import log, retry as retry_conf
+from .. import log
+from .. import retry as retry_conf
 from ..apk.versions import to_apkmirror_version
 
 APP_SITES = {
