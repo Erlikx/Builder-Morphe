@@ -1,13 +1,18 @@
 import json
-import os
 import subprocess
 import sys
-import time
 from pathlib import Path
 
-from core.retry import linear_delay
+from tenacity import Retrying, retry_if_exception_type, stop_after_attempt
+
+from core import log, retry as retry_conf
+from core.settings import settings
 
 FILES = ["data/known_signatures.json", "data/pending_signatures.json"]
+
+
+class _PushConflict(Exception):
+    pass
 
 
 def run(cmd):
@@ -24,9 +29,9 @@ def load(path: Path) -> dict:
 
 
 def main():
-    app_key = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("TARGET_APP")
+    app_key = sys.argv[1] if len(sys.argv) > 1 else settings.target_app
     if not app_key:
-        print("APP_KEY not provided, exiting.")
+        log.info("APP_KEY not provided, exiting.")
         return
 
     local_values = {}
@@ -36,14 +41,17 @@ def main():
             local_values[fname] = data[app_key]
 
     if not local_values:
-        print(f"No new signature record to commit for {app_key}.")
+        log.info(f"No new signature record to commit for {app_key}.")
         return
 
     run(["git", "config", "user.name", "github-actions[bot]"])
     run(["git", "config", "user.email", "github-actions[bot]@users.noreply.github.com"])
 
-    max_retries = 6
-    for attempt in range(max_retries):
+    def _attempt() -> None:
+        """One fetch-reset-reapply-commit-push cycle. Returns normally once
+        there's genuinely nothing left to do (already up to date / nothing
+        real to commit) or the push succeeds; raises _PushConflict to
+        trigger a retry otherwise."""
         run(["git", "fetch", "origin", "main"])
         run(["git", "reset", "--hard", "origin/main"])
 
@@ -57,26 +65,35 @@ def main():
                 changed = True
 
         if not changed:
-            print(f"{app_key} is already up to date on main, skipping commit.")
+            log.info(f"{app_key} is already up to date on main, skipping commit.")
             return
 
         run(["git", "add", *FILES])
         commit = run(["git", "commit", "-m", f"chore: update signature record for {app_key} [skip ci]"])
         if commit.returncode != 0:
-            print("No real change to commit.")
+            log.info("No real change to commit.")
             return
 
         push = run(["git", "push", "origin", "HEAD:main"])
         if push.returncode == 0:
-            print(f"Committed signature record for {app_key}.")
+            log.success(f"Committed signature record for {app_key}.")
             return
 
-        wait = linear_delay(attempt, base=2, jitter_max=4)
-        print(f"Push conflict (attempt {attempt + 1}/{max_retries}), retrying in {wait:.0f}s...")
-        time.sleep(wait)
+        raise _PushConflict(push.stderr.strip() or "git push failed")
 
-    print(f"Could not commit signature record for {app_key} (all retries exhausted).")
-    sys.exit(1)
+    try:
+        for attempt in Retrying(
+            stop=stop_after_attempt(6),
+            wait=retry_conf.incrementing(start=2.0, increment=2.0, jitter=4.0),
+            retry=retry_if_exception_type(_PushConflict),
+            before_sleep=retry_conf.before_sleep(f"Push conflict for {app_key}"),
+            reraise=True,
+        ):
+            with attempt:
+                _attempt()
+    except _PushConflict:
+        log.error(f"Could not commit signature record for {app_key} (all retries exhausted).")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

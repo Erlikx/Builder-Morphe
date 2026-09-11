@@ -1,5 +1,4 @@
 import asyncio
-import os
 import random
 import shutil
 import subprocess
@@ -18,6 +17,7 @@ from core.config import (
     patch_sources_for,
 )
 from core.patch_tools import download_latest_github_asset
+from core.settings import settings
 from core.sources import apkmirror, github_apk
 
 DIST_DIR = Path.cwd() / "dist"
@@ -119,7 +119,7 @@ async def main():
         )
         desktop = desktop_obj["name"]
 
-        target_app = os.environ.get("TARGET_APP", "all")
+        target_app = settings.target_app
         apps_to_process = PROCESS_ORDER if target_app == "all" else [target_app]
 
         patches_pool: dict[str, str | None] = {k: None for k in PATCH_SOURCES}

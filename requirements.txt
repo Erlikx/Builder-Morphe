@@ -1,2 +1,9 @@
-zendriver
+camoufox
+playwright
 curl_cffi
+tenacity
+loguru
+androguard
+cryptography
+apprise
+pydantic-settings

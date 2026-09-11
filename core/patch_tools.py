@@ -1,11 +1,11 @@
-import os
 from collections.abc import Callable
 from pathlib import Path
 
-from . import log, retry
-from .http import new_session
+from tenacity import retry, stop_after_attempt
 
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
+from . import log, retry as retry_conf
+from .http import new_session
+from .settings import settings
 
 
 async def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) -> dict:
@@ -15,14 +15,20 @@ async def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) 
         else f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
     )
 
-    async def _do(_i: int):
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=retry_conf.exponential_with_jitter(max=30.0),
+        before_sleep=retry_conf.before_sleep("GitHub request"),
+        reraise=True,
+    )
+    async def _do():
         async with new_session(timeout=30) as client:
             res = await client.get(
                 url,
                 headers={
                     "User-Agent": "python",
                     "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {GITHUB_TOKEN}",
+                    "Authorization": f"Bearer {settings.github_token.get_secret_value()}",
                 },
             )
             if res.status_code >= 400:
@@ -37,9 +43,7 @@ async def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) 
 
             return data
 
-    return await retry.retry_async(
-        _do, retries=5, delay_fn=lambda a: retry.exponential_delay(a, base_delay_ms=1000), label="GitHub request"
-    )
+    return await _do()
 
 
 async def _download_file(url: str, output_path: Path, expected_size: int | None = None) -> str:
@@ -105,12 +109,16 @@ async def download_latest_github_asset(
                 "tag": release.get("tag_name") or "",
             }
 
-    async def _do(_i: int):
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=retry_conf.exponential_with_jitter(max=30.0),
+        before_sleep=retry_conf.before_sleep("GitHub download"),
+        reraise=True,
+    )
+    async def _do():
         await _download_file(asset["browser_download_url"], out_path, asset.get("size"))
 
-    await retry.retry_async(
-        _do, retries=5, delay_fn=lambda a: retry.exponential_delay(a, base_delay_ms=1000), label="GitHub download"
-    )
+    await _do()
 
     log.success(f"Done: {asset['name']}")
 

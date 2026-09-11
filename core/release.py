@@ -1,24 +1,21 @@
-import os
 from pathlib import Path
 
 from . import log
 from .http import new_session
 from .patch_tools import download_latest_github_asset
-
-TOKEN = os.environ.get("GITHUB_TOKEN", "")
-REPO = os.environ.get("GITHUB_REPOSITORY", "")
+from .settings import settings
 
 HEADERS = {
     "User-Agent": "python",
-    "Authorization": f"Bearer {TOKEN}",
+    "Authorization": f"Bearer {settings.github_token.get_secret_value()}",
     "Accept": "application/vnd.github+json",
 }
 
 
 def _assert_configured():
-    if not TOKEN:
+    if not settings.github_token.get_secret_value():
         raise RuntimeError("Missing GITHUB_TOKEN")
-    if not REPO:
+    if not settings.github_repository:
         raise RuntimeError("Missing GITHUB_REPOSITORY")
 
 
@@ -28,7 +25,7 @@ async def create_new_release(tag: str, release_name: str, release_body: str = ""
 
     async with new_session(timeout=30) as client:
         res = await client.post(
-            f"https://api.github.com/repos/{REPO}/releases",
+            f"https://api.github.com/repos/{settings.github_repository}/releases",
             headers=HEADERS,
             json={
                 "tag_name": tag,
@@ -50,7 +47,7 @@ async def create_new_release(tag: str, release_name: str, release_body: str = ""
 async def list_releases() -> list[dict]:
     async with new_session(timeout=30) as client:
         res = await client.get(
-            f"https://api.github.com/repos/{REPO}/releases",
+            f"https://api.github.com/repos/{settings.github_repository}/releases",
             headers=HEADERS,
             params={"per_page": 100},
         )
@@ -65,7 +62,7 @@ async def list_releases() -> list[dict]:
 async def delete_release(release_id: int) -> None:
     async with new_session(timeout=30) as client:
         await client.delete(
-            f"https://api.github.com/repos/{REPO}/releases/{release_id}",
+            f"https://api.github.com/repos/{settings.github_repository}/releases/{release_id}",
             headers=HEADERS,
         )
 
@@ -73,7 +70,7 @@ async def delete_release(release_id: int) -> None:
 async def delete_tag(tag: str) -> None:
     async with new_session(timeout=30) as client:
         await client.delete(
-            f"https://api.github.com/repos/{REPO}/git/refs/tags/{tag}",
+            f"https://api.github.com/repos/{settings.github_repository}/git/refs/tags/{tag}",
             headers=HEADERS,
         )
 
@@ -92,7 +89,7 @@ async def delete_other_releases(keep_release_id: int) -> None:
 async def update_release_body(release_id: int, body: str) -> dict:
     async with new_session(timeout=30) as client:
         res = await client.patch(
-            f"https://api.github.com/repos/{REPO}/releases/{release_id}",
+            f"https://api.github.com/repos/{settings.github_repository}/releases/{release_id}",
             headers=HEADERS,
             json={"body": body},
         )
@@ -102,7 +99,7 @@ async def update_release_body(release_id: int, body: str) -> dict:
 async def get_assets(release_id: int) -> list[dict]:
     async with new_session(timeout=30) as client:
         res = await client.get(
-            f"https://api.github.com/repos/{REPO}/releases/{release_id}/assets",
+            f"https://api.github.com/repos/{settings.github_repository}/releases/{release_id}/assets",
             headers=HEADERS,
         )
         return res.json()
@@ -111,7 +108,7 @@ async def get_assets(release_id: int) -> list[dict]:
 async def delete_asset(asset_id: int):
     async with new_session(timeout=30) as client:
         await client.delete(
-            f"https://api.github.com/repos/{REPO}/releases/assets/{asset_id}",
+            f"https://api.github.com/repos/{settings.github_repository}/releases/assets/{asset_id}",
             headers=HEADERS,
         )
 

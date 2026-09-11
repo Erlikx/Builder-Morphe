@@ -1,9 +1,9 @@
-import os
 import re
 import subprocess
 from pathlib import Path
 
 from .. import log
+from ..settings import settings
 
 
 def _redact(cmd: list[str], secrets: set[str]) -> list[str]:
@@ -20,10 +20,10 @@ def patch_apk(
 ) -> str:
     log.patch(f"Patching APK & stripping unused architectures ({arch} only)...")
 
-    ks_path = os.environ.get("KS_PATH")
-    ks_password = os.environ.get("KS_PASSWORD")
-    ks_alias = os.environ.get("KS_ALIAS")
-    key_password = os.environ.get("KEY_PASSWORD")
+    ks_path = settings.ks_path
+    ks_password = settings.ks_password.get_secret_value() if settings.ks_password else None
+    ks_alias = settings.ks_alias
+    key_password = settings.key_password.get_secret_value() if settings.key_password else None
 
     cmd = ["java", "-jar", desktop, "patch"]
 
@@ -33,11 +33,11 @@ def patch_apk(
     if arch:
         cmd += ["--striplibs", arch]
 
-    if ks_path and Path(ks_path).exists() and ks_password and ks_alias and key_password:
+    if ks_path and ks_path.exists() and ks_password and ks_alias and key_password:
         log.lock("Custom keystore detected! Signing with your private key...")
         cmd += [
             "--keystore",
-            ks_path,
+            str(ks_path),
             "--keystore-password",
             ks_password,
             "--keystore-entry-alias",

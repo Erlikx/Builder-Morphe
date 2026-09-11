@@ -1,11 +1,11 @@
 import asyncio
-import os
 from pathlib import Path
 
-from core import notify
+from core import log, notify
 from core.config import APPS_CONFIG, PATCH_SOURCES, PROCESS_ORDER, get_release_naming, patch_sources_for
 from core.patch_tools import download_latest_github_asset
 from core.release import create_new_release, delete_other_releases, upload_microg_once, upload_patched_apk
+from core.settings import settings
 
 
 def _build_asset_candidates() -> list[tuple[str, str, str | None]]:
@@ -70,23 +70,25 @@ def find_patched_apks(artifacts_dir: Path):
 
 
 async def main():
-    release_tag = os.environ["RELEASE_TAG"]
-    release_name = os.environ["RELEASE_NAME"]
-    artifacts_dir = Path(os.environ.get("ARTIFACTS_DIR", "artifacts"))
+    if not settings.release_tag or not settings.release_name:
+        raise RuntimeError("Missing RELEASE_TAG/RELEASE_NAME (expected to be set by prepare_release.py's output)")
+    release_tag = settings.release_tag
+    release_name = settings.release_name
+    artifacts_dir = settings.artifacts_dir
 
-    print(f"Scanning {artifacts_dir} for patched APKs...")
+    log.step(f"Scanning {artifacts_dir} for patched APKs...")
     matched, unmatched = find_patched_apks(artifacts_dir)
 
     for name in unmatched:
-        print(f"Could not match asset to a known app: {name}")
+        log.warn(f"Could not match asset to a known app: {name}")
 
-    print(f"Matched {len(matched)} app asset(s).")
+    log.info(f"Matched {len(matched)} app asset(s).")
 
     succeeded_keys = {apk["app_key"] for apk in matched}
     failed_keys = [key for key in PROCESS_ORDER if key not in succeeded_keys]
 
     if not matched:
-        print("No apps patched successfully in this run, skipping release creation.")
+        log.error("No apps patched successfully in this run, skipping release creation.")
         await notify.notify(notify.format_all_failed(release_name, failed_keys))
         return
 
@@ -117,11 +119,11 @@ async def main():
                 f"{asset['body']}\n\n</details>\n"
             )
         except Exception as e:
-            print(f"Could not fetch release notes for {label}: {e}")
+            log.warn(f"Could not fetch release notes for {label}: {e}")
 
-    print(f"\nCreating release: {release_tag}")
+    log.step(f"Creating release: {release_tag}")
     release = await create_new_release(release_tag, release_name, body, draft=False)
-    print(f"Release created: {release['tag_name']} (id={release['id']})")
+    log.success(f"Release created: {release['tag_name']} (id={release['id']})")
 
     for apk in matched:
         await upload_patched_apk(release, apk["path"])
@@ -129,16 +131,16 @@ async def main():
     if any(apk["app_key"] in ("youtube", "youtube-music") for apk in matched):
         await upload_microg_once(release)
 
-    print("\nAll apps successfully published under one release!")
+    log.success("All apps successfully published under one release!")
 
     try:
         await delete_other_releases(release["id"])
-        print("Old releases deleted.")
+        log.info("Old releases deleted.")
     except Exception as e:
-        print(f"Failed to delete old releases: {e}")
+        log.warn(f"Failed to delete old releases: {e}")
 
     release_url = release.get("html_url") or (
-        f"https://github.com/{os.environ.get('GITHUB_REPOSITORY', '')}/releases/tag/{release_tag}"
+        f"https://github.com/{settings.github_repository}/releases/tag/{release_tag}"
     )
     await notify.notify(notify.format_summary(release_name, release_url, matched, failed_keys))
 

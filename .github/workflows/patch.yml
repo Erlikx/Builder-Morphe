@@ -115,68 +115,20 @@ jobs:
           distribution: temurin
           java-version: 25
 
-      - name: Install Google Chrome
+      - name: Install Firefox runtime libraries
         run: |
-          if command -v google-chrome-stable >/dev/null 2>&1; then
-            echo "Chrome already installed, skipping: $(google-chrome-stable --version)"
-          else
-            wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/google-chrome.gpg
-            echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
-            sudo apt-get update
-            sudo apt-get install -y google-chrome-stable
-          fi
-
-      - name: Install apksigner (Android SDK build-tools)
-        run: |
-          APKSIGNER_BIN=$(find "${ANDROID_HOME:-/usr/local/lib/android/sdk}/build-tools" -maxdepth 2 -name apksigner 2>/dev/null | sort -V | tail -1)
-
-          if [ -z "$APKSIGNER_BIN" ]; then
-            echo "apksigner not found, downloading Android command-line tools..."
-            SDK_ROOT="$HOME/android-sdk"
-            mkdir -p "$SDK_ROOT/cmdline-tools"
-            curl -sL https://dl.google.com/android/repository/commandlinetools-linux-latest.zip -o cmdline-tools.zip
-            unzip -q cmdline-tools.zip -d "$SDK_ROOT/cmdline-tools"
-            mv "$SDK_ROOT/cmdline-tools/cmdline-tools" "$SDK_ROOT/cmdline-tools/latest"
-            yes | "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" --licenses > /dev/null 2>&1 || true
-            "$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager" --sdk_root="$SDK_ROOT" "build-tools;35.0.0"
-            APKSIGNER_BIN="$SDK_ROOT/build-tools/35.0.0/apksigner"
-          else
-            echo "apksigner already installed: $APKSIGNER_BIN"
-          fi
-
-          echo "APKSIGNER_PATH=$APKSIGNER_BIN" >> "$GITHUB_ENV"
-          "$APKSIGNER_BIN" --version
+          # Libs Camoufox's patched Firefox build needs on a bare
+          # ubuntu-latest runner (equivalent to the old Chrome apt step).
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-0 libx11-xcb1 libasound2t64 || sudo apt-get install -y libgtk-3-0 libx11-xcb1 libasound2
 
       - name: Install Python dependencies (from lockfile, pinned versions)
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements-lock.txt
 
-      - name: Fix zendriver non-UTF-8 source bug (upstream, inherited from nodriver)
-        run: |
-          python3 - << 'PYEOF'
-          import pathlib
-          import site
-
-          patched_any = False
-
-          for base in site.getsitepackages():
-              cdp_dir = pathlib.Path(base) / "zendriver" / "cdp"
-              if not cdp_dir.exists():
-                  continue
-              for py_file in cdp_dir.glob("*.py"):
-                  raw = py_file.read_bytes()
-                  try:
-                      raw.decode("utf-8")
-                  except UnicodeDecodeError:
-                      fixed = raw.decode("latin-1").encode("utf-8")
-                      py_file.write_bytes(fixed)
-                      print(f"Patched invalid UTF-8 bytes in: {py_file}")
-                      patched_any = True
-
-          if not patched_any:
-              print("zendriver source files are already valid UTF-8, no fix needed.")
-          PYEOF
+      - name: Fetch Camoufox browser binary
+        run: python3 -m camoufox fetch
 
       - name: Setup Keystore
         run: |
@@ -247,7 +199,7 @@ jobs:
           python-version: "3.13"
 
       - name: Install dependencies
-        run: pip install curl_cffi
+        run: pip install -r requirements.txt
 
       - name: Download patched APK artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
@@ -267,6 +219,7 @@ jobs:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          APPRISE_URLS: ${{ secrets.APPRISE_URLS }}
 
   cleanup:
     needs: finalize

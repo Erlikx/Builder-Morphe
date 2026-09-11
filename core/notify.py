@@ -1,14 +1,22 @@
-import os
+"""Webhook notifications, sent through apprise.
+
+DISCORD_WEBHOOK_URL / TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID keep working
+exactly as before: apprise's Discord plugin accepts a native
+`https://discord.com/api/webhooks/...` URL as-is, and a Telegram bot token +
+chat id are combined into apprise's `tgram://` scheme. APPRISE_URLS is new:
+any additional apprise service URL(s) - Slack, ntfy, Matrix, email, and
+everything else at https://github.com/caronc/apprise#supported-notifications
+- with no code change ever needed to add one.
+"""
+
+import re
+
+import apprise
 
 from . import log
-from .http import new_session
+from .settings import settings
 
-DISCORD_WEBHOOK_URL = os.environ.get("DISCORD_WEBHOOK_URL", "")
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
-
-_DISCORD_LIMIT = 2000
-_TELEGRAM_LIMIT = 4096
+_BODY_LIMIT = 2000  # Discord's cap is the tightest of the services we default to
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -17,40 +25,36 @@ def _truncate(text: str, limit: int) -> str:
     return text[: limit - 20] + "\n... (truncated)"
 
 
-async def _send_discord(text: str) -> None:
-    async with new_session(timeout=15) as client:
-        res = await client.post(DISCORD_WEBHOOK_URL, json={"content": _truncate(text, _DISCORD_LIMIT)})
-        if res.status_code >= 400:
-            log.warn(f"Discord notification failed: HTTP {res.status_code}")
+def _build_apprise() -> apprise.Apprise:
+    apobj = apprise.Apprise()
 
+    discord_url = settings.discord_webhook_url.get_secret_value()
+    if discord_url:
+        apobj.add(discord_url)
 
-async def _send_telegram(text: str) -> None:
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    async with new_session(timeout=15) as client:
-        res = await client.post(
-            url,
-            json={
-                "chat_id": TELEGRAM_CHAT_ID,
-                "text": _truncate(text, _TELEGRAM_LIMIT),
-                "disable_web_page_preview": True,
-            },
-        )
-        if res.status_code >= 400:
-            log.warn(f"Telegram notification failed: HTTP {res.status_code}")
+    bot_token = settings.telegram_bot_token.get_secret_value()
+    chat_id = settings.telegram_chat_id
+    if bot_token and chat_id:
+        apobj.add(f"tgram://{bot_token}/{chat_id}")
+
+    for url in re.split(r"[\s,]+", settings.apprise_urls.get_secret_value().strip()):
+        if url:
+            apobj.add(url)
+
+    return apobj
 
 
 async def notify(text: str) -> None:
-    if DISCORD_WEBHOOK_URL:
-        try:
-            await _send_discord(text)
-        except Exception as e:
-            log.warn(f"Discord notification error: {e}")
+    apobj = _build_apprise()
+    if not len(apobj):
+        return
 
-    if TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID:
-        try:
-            await _send_telegram(text)
-        except Exception as e:
-            log.warn(f"Telegram notification error: {e}")
+    try:
+        results = await apobj.async_notify(body=_truncate(text, _BODY_LIMIT))
+        if not results:
+            log.warn("One or more notification targets failed to send (apprise reported failure).")
+    except Exception as e:
+        log.warn(f"Notification error: {e}")
 
 
 def format_summary(release_name: str, release_url: str, matched: list[dict], failed_keys: list[str]) -> str:

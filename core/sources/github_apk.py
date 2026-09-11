@@ -1,13 +1,15 @@
-import os
 from pathlib import Path
 
 from curl_cffi.requests import AsyncSession
 
 from .. import log
 from ..http import new_session
+from ..settings import settings
 
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-_GH_HEADERS = {"User-Agent": "Mozilla/5.0 (Python)", "Authorization": f"Bearer {GITHUB_TOKEN}"}
+_GH_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Python)",
+    "Authorization": f"Bearer {settings.github_token.get_secret_value()}",
+}
 
 APP_TAGS = {
     "instagram": "instagram",

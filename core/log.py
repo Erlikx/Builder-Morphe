@@ -1,28 +1,157 @@
-import os
+"""Colorized, GitHub-Actions-aware logging, backed by loguru.
+
+The public surface (header/step/info/download/search/browser/patch/lock/
+success/saved/warn/wait/error/colorize_patch_line) is unchanged from before
+the loguru migration, so nothing else in the project had to change its
+imports or call sites.
+
+Two things loguru buys us over the old print()-based version:
+  - `::warning::` / `::error::` GitHub Actions annotations (surfaced in the
+    run summary UI, not just buried in the log) now come for free from a
+    second sink, instead of a bespoke `_annotate()` helper.
+  - Exceptions get loguru's structured traceback rendering - with
+    `diagnose=False` explicitly set, since this pipeline's local variables
+    routinely include keystore/webhook/token secrets, and `diagnose=True`
+    (loguru's default) would print local variable values straight into an
+    otherwise-public CI log on any unhandled exception.
+"""
+
 import re
+import sys
 
-_COLOR_ENABLED = os.environ.get("NO_COLOR") is None
-_IN_GITHUB_ACTIONS = os.environ.get("GITHUB_ACTIONS") == "true"
+from loguru import logger
+
+from .settings import settings
+
+_COLOR_ENABLED = settings.no_color is None
+
+# ---------------------------------------------------------------------------
+# Custom levels for our own "flavor of INFO" categories. Loguru ships
+# TRACE/DEBUG/INFO/SUCCESS/WARNING/ERROR/CRITICAL already; everything below
+# is project-specific and exists purely for a distinct icon + color, so they
+# all sit at severity 21 (just above INFO's 20) - they show up whenever INFO
+# does, and would be silenced together with it if a sink's level were ever
+# raised above INFO.
+for _name, _color, _icon in [
+    ("HEADER", "<bold><cyan>", "▶"),
+    ("STEP", "<cyan>", "🔧"),
+    ("DOWNLOAD", "<magenta>", "📦"),
+    ("SEARCH", "<blue>", "🔍"),
+    ("BROWSER", "<blue>", "🌐"),
+    ("PATCH", "<cyan>", "🩹"),
+    ("LOCK", "<blue>", "🔐"),
+    ("SAVED", "<green>", "💾"),
+    ("WAIT", "<yellow>", "⏳"),
+]:
+    logger.level(_name, no=21, color=_color, icon=_icon)
+
+# Re-skin the built-in levels we reuse so their icons match the old scheme.
+logger.level("INFO", color="<blue>", icon="ℹ️")
+logger.level("SUCCESS", color="<bold><green>", icon="✅")
+logger.level("WARNING", color="<yellow>", icon="⚠️")
+logger.level("ERROR", color="<bold><red>", icon="❌")
 
 
-def _escape_workflow_command(text: str) -> str:
-    return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+def _format(record) -> str:
+    # HEADER gets the old leading-blank-line treatment to visually separate
+    # each app's section in a run that processes more than one.
+    if record["level"].name == "HEADER":
+        return "\n<level>{level.icon} {message}</level>\n{exception}"
+    return "<level>{level.icon}  {message}</level>\n{exception}"
 
 
-def _annotate(level: str, msg: str) -> None:
-    if _IN_GITHUB_ACTIONS:
-        print(f"::{level}::{_escape_workflow_command(msg)}")
+logger.remove()
+logger.add(
+    sys.stdout,
+    level="TRACE",
+    format=_format,
+    colorize=_COLOR_ENABLED,
+    backtrace=True,
+    diagnose=False,
+)
 
+if settings.github_actions:
+
+    def _escape_workflow_command(text: str) -> str:
+        return text.replace("%", "%25").replace("\r", "%0D").replace("\n", "%0A")
+
+    def _github_annotation(message) -> None:
+        record = message.record
+        gha_level = "error" if record["level"].name == "ERROR" else "warning"
+        sys.stdout.write(f"::{gha_level}::{_escape_workflow_command(record['message'])}\n")
+
+    # WARNING-and-above only (our custom levels all sit below it at 21), and
+    # a plain "{message}" format here since GitHub's own UI does the
+    # highlighting - we don't want our icon/ANSI wrapping inside it.
+    logger.add(_github_annotation, level="WARNING", format="{message}")
+
+
+def header(msg: str) -> None:
+    logger.log("HEADER", msg)
+
+
+def step(msg: str) -> None:
+    logger.log("STEP", msg)
+
+
+def info(msg: str) -> None:
+    logger.info(msg)
+
+
+def download(msg: str) -> None:
+    logger.log("DOWNLOAD", msg)
+
+
+def search(msg: str) -> None:
+    logger.log("SEARCH", msg)
+
+
+def browser(msg: str) -> None:
+    logger.log("BROWSER", msg)
+
+
+def patch(msg: str) -> None:
+    logger.log("PATCH", msg)
+
+
+def lock(msg: str) -> None:
+    logger.log("LOCK", msg)
+
+
+def success(msg: str) -> None:
+    logger.success(msg)
+
+
+def saved(msg: str) -> None:
+    logger.log("SAVED", msg)
+
+
+def warn(msg: str) -> None:
+    logger.warning(msg)
+
+
+def wait(msg: str) -> None:
+    logger.log("WAIT", msg)
+
+
+def error(msg: str) -> None:
+    logger.error(msg)
+
+
+# ---------------------------------------------------------------------------
+# Patch-tool output passthrough. The Java patcher (morphe-desktop) prints its
+# OWN lines (ERROR: ..., INFO: Applied: ..., ...) as it runs; this recolors
+# them line-by-line as they stream past in real time. These aren't messages
+# WE'RE emitting, just a foreign process's stdout being recolored for
+# readability, so it stays independent of loguru's record/format machinery -
+# plain ANSI wrapping, exactly as before.
 
 class _C:
     RESET = "\033[0m"
-    BOLD = "\033[1m"
-    DIM = "\033[2m"
     RED = "\033[31m"
     GREEN = "\033[32m"
     YELLOW = "\033[33m"
     BLUE = "\033[34m"
-    MAGENTA = "\033[35m"
     CYAN = "\033[36m"
     GRAY = "\033[90m"
 
@@ -31,60 +160,6 @@ def _wrap(text: str, *codes: str) -> str:
     if not _COLOR_ENABLED:
         return text
     return f"{''.join(codes)}{text}{_C.RESET}"
-
-
-def header(msg: str) -> None:
-    print(_wrap(f"\n▶ {msg}", _C.BOLD, _C.CYAN))
-
-
-def step(msg: str) -> None:
-    print(_wrap(f"🔧 {msg}", _C.CYAN))
-
-
-def info(msg: str) -> None:
-    print(_wrap(f"ℹ️  {msg}", _C.BLUE))
-
-
-def download(msg: str) -> None:
-    print(_wrap(f"📦 {msg}", _C.MAGENTA))
-
-
-def search(msg: str) -> None:
-    print(_wrap(f"🔍 {msg}", _C.BLUE))
-
-
-def browser(msg: str) -> None:
-    print(_wrap(f"🌐 {msg}", _C.BLUE))
-
-
-def patch(msg: str) -> None:
-    print(_wrap(f"🩹 {msg}", _C.CYAN))
-
-
-def lock(msg: str) -> None:
-    print(_wrap(f"🔐 {msg}", _C.BLUE))
-
-
-def success(msg: str) -> None:
-    print(_wrap(f"✅ {msg}", _C.GREEN, _C.BOLD))
-
-
-def saved(msg: str) -> None:
-    print(_wrap(f"💾 {msg}", _C.GREEN))
-
-
-def warn(msg: str) -> None:
-    print(_wrap(f"⚠️  {msg}", _C.YELLOW))
-    _annotate("warning", msg)
-
-
-def wait(msg: str) -> None:
-    print(_wrap(f"⏳ {msg}", _C.YELLOW))
-
-
-def error(msg: str) -> None:
-    print(_wrap(f"❌ {msg}", _C.RED, _C.BOLD))
-    _annotate("error", msg)
 
 
 _PATCH_LINE_RULES: list[tuple[re.Pattern, str, str]] = [
