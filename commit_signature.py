@@ -5,7 +5,8 @@ from pathlib import Path
 
 from tenacity import Retrying, retry_if_exception_type, stop_after_attempt
 
-from core import log, retry as retry_conf
+from core import log
+from core import retry as retry_conf
 from core.settings import settings
 
 FILES = ["data/known_signatures.json", "data/pending_signatures.json"]
