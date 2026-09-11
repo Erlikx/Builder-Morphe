@@ -61,6 +61,15 @@ def _format(record) -> str:
 
 
 logger.remove()
+
+# androguard also uses loguru internally (it's a shared dependency, and
+# loguru's `logger` is a process-wide singleton), so without this its own
+# DEBUG/TRACE-level AXML parsing internals (STRING_POOL dumps, raw manifest
+# attribute walks, etc. - see get_apk_certificate_fingerprints) would stream
+# straight into our sink below and flood the run with noise that has
+# nothing to do with this pipeline's own progress reporting.
+logger.disable("androguard")
+
 logger.add(
     sys.stdout,
     level="TRACE",
@@ -180,17 +189,38 @@ _PATCH_LINE_RULES: list[tuple[re.Pattern, str, str]] = [
 ]
 
 
+# The Java patcher (morphe-desktop) already prefixes many of its own lines
+# with its own icon (e.g. "✅ INFO: Applied: ...", "⏭️  INFO: Skipping
+# disabled: ...", "ℹ️  INFO: Loading patches..."). Every anchored rule above
+# (^INFO, ^WARN, ^ERROR, ^INFO:\s*Applied:, ...) was matching against that
+# raw text, so it never matched at position 0 - the CLI's own icon was
+# sitting there instead of "INFO"/"WARN"/"ERROR". That silently fell
+# through to "no rule matched -> return line unchanged", which is why
+# "Applied:", "Skipping disabled:" and the plain "INFO:" catch-all lines
+# were coming out with no color at all, while the handful of rules that
+# don't anchor to the start of the line (e.g. "applying \d+ patches") still
+# matched anywhere in the string - just with our icon glued on next to the
+# CLI's own one instead of replacing it.
+# Deliberately [^A-Za-z]+ rather than [^\w]+: some of the CLI's own icons
+# (e.g. "ℹ") are, surprisingly, matched by \w under Python's Unicode regex
+# rules, which would leave them un-stripped and defeat this fix for exactly
+# the "generic INFO:" line it's meant to cover.
+_LEADING_ICON_RE = re.compile(r"^[^A-Za-z]+")
+
+
 def colorize_patch_line(line: str) -> str:
     stripped = line.rstrip("\n")
     if not stripped.strip():
         return line
 
+    text = _LEADING_ICON_RE.sub("", stripped)
+
     for pattern, icon, color in _PATCH_LINE_RULES:
-        if pattern.search(stripped):
+        if pattern.search(text):
             return (
-                _wrap(f"{icon}{stripped}", color) + "\n"
+                _wrap(f"{icon}{text}", color) + "\n"
                 if line.endswith("\n")
-                else _wrap(f"{icon}{stripped}", color)
+                else _wrap(f"{icon}{text}", color)
             )
 
     return line
