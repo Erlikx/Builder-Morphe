@@ -132,11 +132,12 @@ APPS_CONFIG: dict[str, AppConfig] = {
     "speedtest": {
         "pkg": "org.zwanoo.android.speedtest",
         "name": "speedtest",
-        "patch_source": "rushi",
+        "patch_source": ["rushi", "morphe"]
         "arch": "arm64-v8a",
         "icon": "https://www.google.com/s2/favicons?sz=128&domain=speedtest.net",
         "exclude": [],
         "force_version": "7.0.7",
+        "enable": ["Disable Play Store updates"],
     },
     "brave": {
         "pkg": "com.brave.browser",
