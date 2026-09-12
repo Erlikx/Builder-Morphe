@@ -452,7 +452,7 @@ async def _attempt_download(page: Page):
             log.browser("Clicking final download link...")
             download = await _click_and_download(page, "#download-link", timeout_ms=60_000)
 
-    if download is None and await _is_challenge_page(page):
+    if download is None:
         raise _ChallengePresent(_register_challenge())
 
     return download
@@ -503,9 +503,9 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
                 wait=_ChallengeCooldownWait(),
                 retry=retry_if_exception_type(_ChallengePresent),
                 before_sleep=lambda rs: log.warn(
-                    f"Cloudflare challenge on download click, cooling down "
+                    f"Download click had no effect, cooling down "
                     f"{(rs.next_action.sleep if rs.next_action else 0):.0f}s before retrying "
-                    f"(challenge #{_challenge_hits} this run)..."
+                    f"(attempt #{_challenge_hits} this run)..."
                 ),
                 reraise=True,
             ):
