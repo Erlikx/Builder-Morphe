@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 
 from . import log
@@ -150,27 +151,57 @@ async def upload_patched_apk(release: dict, apk_path: str):
     await upload_with_replace(release, apk_path)
 
 
+async def _fetch_and_upload_companion(
+    release: dict, owner: str, repo: str, match: Callable[[str], bool], base_name: str
+) -> None:
+    result = await download_latest_github_asset(owner=owner, repo=repo, match=match, prerelease=True)
+
+    final_name = base_name.replace(".apk", "-PRERELEASE.apk") if result.get("prerelease") else base_name
+
+    original_path = Path.cwd() / result["name"]
+    new_path = Path.cwd() / final_name
+    if original_path.exists() and original_path != new_path:
+        original_path.rename(new_path)
+
+    if result.get("prerelease"):
+        log.warn(f"{base_name} latest release ({result['tag']}) is a PRERELEASE")
+
+    assets = await get_assets(release["id"])
+    if any(a["name"] == final_name for a in assets):
+        log.info(f"{final_name} already up to date on this release, skipping upload")
+        return
+
+    await upload_with_replace(release, str(new_path))
+
+
 async def upload_microg_once(release: dict):
     _assert_configured()
 
     log.step("Fetching MicroG...")
-    microg_result = await download_latest_github_asset(
-        owner="MorpheApp",
-        repo="MicroG-RE",
-        match=lambda n: n.endswith(".apk"),
+    await _fetch_and_upload_companion(
+        release,
+        "MorpheApp",
+        "MicroG-RE",
+        lambda n: n.endswith("-arm64-v8a.apk") and "noicon" not in n.lower(),
+        "MicroG.apk",
+    )
+    await _fetch_and_upload_companion(
+        release,
+        "MorpheApp",
+        "MicroG-RE",
+        lambda n: n.endswith("-noicon-arm64-v8a.apk"),
+        "MicroG-NoIcon.apk",
     )
 
-    original_path = Path.cwd() / microg_result["name"]
-    new_path = Path.cwd() / "MicroG.apk"
 
-    if original_path.exists() and original_path != new_path:
-        original_path.rename(new_path)
+async def upload_pothelper_once(release: dict):
+    _assert_configured()
 
-    assets = await get_assets(release["id"])
-    already_uploaded = next((a for a in assets if a["name"] == "MicroG.apk"), None)
-
-    if already_uploaded:
-        log.info("MicroG already up to date on this release, skipping upload")
-        return
-
-    await upload_with_replace(release, str(new_path))
+    log.step("Fetching PotHelper...")
+    await _fetch_and_upload_companion(
+        release,
+        "MorpheApp",
+        "PotHelper",
+        lambda n: n.endswith(".apk"),
+        "PotHelper.apk",
+    )
