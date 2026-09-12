@@ -132,7 +132,7 @@ APPS_CONFIG: dict[str, AppConfig] = {
     "speedtest": {
         "pkg": "org.zwanoo.android.speedtest",
         "name": "speedtest",
-        "patch_source": ["rushi", "morphe"]
+        "patch_source": ["rushi", "morphe"],
         "arch": "arm64-v8a",
         "icon": "https://www.google.com/s2/favicons?sz=128&domain=speedtest.net",
         "exclude": [],
