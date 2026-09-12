@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from camoufox import DefaultAddons
 from camoufox.async_api import AsyncCamoufox
 from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -69,6 +70,14 @@ _CHALLENGE_MARKERS = [
     "cf-browser-verification",
     "cf_chl_",
     "ddos protection by cloudflare",
+    # Newer Cloudflare "Managed Challenge" / Turnstile interstitial. Its
+    # "Verify you are human" checkbox text lives inside a cross-origin
+    # iframe, so it never shows up in document.body.innerText - only the
+    # outer wrapper text below does. Without these, this page type is
+    # invisible to _is_challenge_page() and gets treated as a normal
+    # (button-less) page instead of a challenge to cool down and retry.
+    "performing security verification",
+    "verifies you are not a bot",
 ]
 
 _camoufox_stack: contextlib.AsyncExitStack | None = None
@@ -95,7 +104,19 @@ async def _start_browser():
     # everything else about the Firefox fingerprint (UA, navigator
     # properties, ...) is generated and kept internally consistent by
     # Camoufox itself, so there's no manual UA-building step here anymore.
-    browser = await stack.enter_async_context(AsyncCamoufox(headless=True, humanize=True))
+    #
+    # exclude_addons=[UBO]: Camoufox bundles uBlock Origin by default. On
+    # APKMirror that backfires - it blocks the ad slots on the variant
+    # page, APKMirror's own ad-blocker check notices and swaps in a
+    # "Whoa there! It looks like you're using an ad blocker, wait 15 more
+    # sec" panel instead of the real download link, and the click/`#download-link`
+    # logic below (which expects the normal fast confirm flow) never finds
+    # anything to click. Dropping the bundled adblocker avoids tripping
+    # that wall in the first place, and also removes one more network
+    # fetch (the addon download) from browser startup.
+    browser = await stack.enter_async_context(
+        AsyncCamoufox(headless=True, humanize=True, exclude_addons=[DefaultAddons.UBO])
+    )
     return stack, browser
 
 
