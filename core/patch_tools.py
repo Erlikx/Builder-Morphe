@@ -108,6 +108,7 @@ async def download_latest_github_asset(
                 "name": asset["name"],
                 "body": release.get("body") or "",
                 "tag": release.get("tag_name") or "",
+                "prerelease": bool(release.get("prerelease")),
             }
 
     @retry(
@@ -127,4 +128,5 @@ async def download_latest_github_asset(
         "name": asset["name"],
         "body": release.get("body") or "",
         "tag": release.get("tag_name") or "",
+        "prerelease": bool(release.get("prerelease")),
     }
