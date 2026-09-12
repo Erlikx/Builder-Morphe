@@ -129,23 +129,48 @@ jobs:
 
       - name: Fetch Camoufox browser binary
         run: |
+          # `camoufox fetch` returning 0 and `camoufox path` printing a
+          # path that exists are NOT proof the browser actually works -
+          # up to 30 matrix jobs can be fetching the same large Firefox
+          # archive from the same CDN at nearly the same moment, and an
+          # interrupted/truncated download can still leave a non-empty
+          # file behind that `[ -e ... ]` happily accepts. That gap is
+          # exactly what let "official/stable is not installed" reach
+          # main.py minutes later instead of failing here. A real launch
+          # is the only check that can't be fooled by a partial install,
+          # so do that instead, and wipe + re-fetch from scratch on
+          # failure rather than layering a retry on top of a possibly
+          # corrupted cache.
           ok=0
           for i in 1 2 3; do
-            if python3 -m camoufox fetch; then
+            python3 -m camoufox fetch || true
+
+            if python3 -c '
+          import asyncio
+          from camoufox.async_api import AsyncCamoufox
+
+          async def main():
+              async with AsyncCamoufox(headless=True) as browser:
+                  page = await browser.new_page()
+                  await page.close()
+
+          asyncio.run(main())
+          '; then
               ok=1
               break
             fi
+
+            echo "Camoufox smoke-test launch failed on attempt $i - removing cache and retrying fetch..."
+            python3 -m camoufox remove -y || true
             delay=$(( 5 + RANDOM % 10 ))
-            echo "camoufox fetch attempt $i failed, retrying in ${delay}s..."
             sleep "$delay"
           done
 
-          camoufox_bin="$(python3 -m camoufox path || true)"
-          if [ "$ok" -ne 1 ] || [ -z "$camoufox_bin" ] || [ ! -e "$camoufox_bin" ]; then
-            echo "Camoufox browser binary not installed after 3 fetch attempts (path: '$camoufox_bin')" >&2
+          if [ "$ok" -ne 1 ]; then
+            echo "Camoufox browser could not be launched after 3 fetch+smoke-test attempts" >&2
             exit 1
           fi
-          echo "Camoufox binary confirmed at $camoufox_bin"
+          echo "Camoufox binary confirmed working at $(python3 -m camoufox path || true)"
 
       - name: Setup Keystore
         run: |
