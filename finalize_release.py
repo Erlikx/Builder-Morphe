@@ -4,7 +4,13 @@ from pathlib import Path
 from core import log, notify
 from core.config import APPS_CONFIG, PATCH_SOURCES, PROCESS_ORDER, get_release_naming, patch_sources_for
 from core.patch_tools import download_latest_github_asset
-from core.release import create_new_release, delete_other_releases, upload_microg_once, upload_patched_apk
+from core.release import (
+    create_new_release,
+    delete_other_releases,
+    upload_microg_once,
+    upload_patched_apk,
+    upload_pothelper_once,
+)
 from core.settings import settings
 
 
@@ -24,6 +30,8 @@ def match_asset(file_name: str):
     if not file_name.lower().endswith(".apk"):
         return None
     if file_name.lower().startswith("microg"):
+        return None
+    if file_name.lower().startswith("pothelper"):
         return None
 
     base = file_name[:-4]
@@ -130,6 +138,7 @@ async def main():
 
     if any(apk["app_key"] in ("youtube", "youtube-music") for apk in matched):
         await upload_microg_once(release)
+        await upload_pothelper_once(release)
 
     log.success("All apps successfully published under one release!")
 
