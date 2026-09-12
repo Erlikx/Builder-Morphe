@@ -21,6 +21,10 @@ def test_match_asset_ignores_microg():
     assert match_asset("MicroG-25.09.32.apk") is None
 
 
+def test_match_asset_ignores_pothelper():
+    assert match_asset("PotHelper-1.1.1.apk") is None
+
+
 def test_match_asset_unknown_app_returns_none():
     assert match_asset("SomeRandomApp-1.0.apk") is None
 
