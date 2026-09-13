@@ -1,4 +1,4 @@
-çfrom curl_cffi.requests import AsyncSession
+from curl_cffi.requests import AsyncSession
 
 IMPERSONATE = "firefox"
 
