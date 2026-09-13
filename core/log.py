@@ -17,8 +17,6 @@ for _name, _color, _icon in [
     ("LOCK", "<blue>", "🔐"),
     ("SAVED", "<green>", "💾"),
     ("WAIT", "<yellow>", "⏳"),
-    # Below: classifications for morphe-desktop's own per-line passthrough
-    # output (see patch_line()) - not messages we emit ourselves.
     ("APPLIED", "<cyan>", "✅"),
     ("SKIPPED", "<red>", "⏭️"),
 ]:
@@ -26,12 +24,6 @@ for _name, _color, _icon in [
 
 logger.level("INFO", color="<blue>", icon="ℹ️")
 logger.level("SUCCESS", color="<bold><green>", icon="✅")
-# Sits below WARNING (30) on purpose: retries, cooldowns, and other
-# expected/self-recovering conditions (see notice() below) still show up
-# yellow in the terminal, but - unlike warn() - never reach the
-# _github_annotation sink further down, since that sink is filtered to
-# level="WARNING" and up. Those aren't things a maintainer needs to act on;
-# genuine misconfiguration/failure warnings should keep using warn().
 logger.level("NOTICE", no=25, color="<yellow>", icon="🔁")
 logger.level("WARNING", color="<yellow>", icon="⚠️")
 logger.level("ERROR", color="<bold><red>", icon="❌")
@@ -115,7 +107,7 @@ def warn(msg: str) -> None:
 def notice(msg: str) -> None:
     """Like warn(), but for expected/self-recovering conditions (a retry,
     a cooldown, "proceeding anyway") that shouldn't show up as a GitHub
-    Actions Annotation - see the NOTICE level comment above."""
+    Actions Annotation."""
     logger.log("NOTICE", msg)
 
 
@@ -127,34 +119,10 @@ def error(msg: str) -> None:
     logger.error(msg)
 
 
-# ---------------------------------------------------------------------------
-# Patch-tool output passthrough. The Java patcher (morphe-desktop) prints its
-# OWN lines (ERROR: ..., INFO: Applied: ..., ...) as it runs. patch_line()
-# classifies each one and re-emits it through the SAME loguru sink as every
-# other message in this module (header/step/download/... above), instead of
-# hand-rolled raw \033[..m ANSI wrapping. The hand-rolled version wasn't
-# rendering reliably in this project's GitHub Actions log viewer - every
-# category came out uncolored, not just the ones with an anchoring bug -
-# while loguru's own sink (proven working for step/download/success/etc.)
-# renders fine there, so this routes through that instead of debugging the
-# raw-ANSI path further.
-
-# The CLI already prefixes many of its own lines with its own icon (e.g.
-# "✅ INFO: Applied: ...", "⏭️  INFO: Skipping disabled: ...", "ℹ️  INFO:
-# Loading patches..."). Stripped here so the rules below (which look for
-# "INFO:", "WARN", "ERROR" at the start of the text) see the real text
-# instead of that icon, and so the final line carries exactly one (ours)
-# icon instead of two. Deliberately [^A-Za-z]+ rather than [^\w]+: some of
-# the CLI's icons (e.g. "ℹ") are, surprisingly, matched by \w under
-# Python's Unicode regex rules, which would leave them un-stripped.
 _LEADING_ICON_RE = re.compile(r"^[^A-Za-z]+")
 
 _PATCH_LINE_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^ERROR", re.IGNORECASE), "ERROR"),
-    # NOTICE, not WARNING: morphe-desktop emits plenty of these (e.g. "No
-    # AndroidManifest.xml in <split>") that are routine, expected noise for
-    # split/bundle APKs, not something a maintainer needs an Annotation
-    # for - see the NOTICE level comment near the top of this file.
     (re.compile(r"^WARN", re.IGNORECASE), "NOTICE"),
     (re.compile(r"applying \d+ patches", re.IGNORECASE), "PATCH"),
     (re.compile(r"executing patches", re.IGNORECASE), "PATCH"),
