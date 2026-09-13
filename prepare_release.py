@@ -20,9 +20,6 @@ def main():
     log.info(f"Release tag for this run: {tag}")
     log.info(f"Release name for this run: {name}")
 
-    # GITHUB_OUTPUT is GitHub Actions' own step-output mechanism, not
-    # pipeline configuration, so it stays a direct env lookup rather than a
-    # Settings field.
     github_output = os.environ.get("GITHUB_OUTPUT")
     if github_output:
         with open(github_output, "a") as f:
