@@ -35,6 +35,6 @@ def before_sleep(label: str):
     def _log(retry_state: RetryCallState) -> None:
         exc = retry_state.outcome.exception() if retry_state.outcome else None
         delay = retry_state.next_action.sleep if retry_state.next_action else 0.0
-        log.warn(f"{label} (attempt {retry_state.attempt_number}): {exc} - retrying in {delay:.1f}s")
+        log.notice(f"{label} (attempt {retry_state.attempt_number}): {exc} - retrying in {delay:.1f}s")
 
     return _log
