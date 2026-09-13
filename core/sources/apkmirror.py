@@ -453,10 +453,25 @@ async def _extract_variant_url(page: Page, force_build: str | None, app_name: st
 async def _click_and_download(page: Page, selector: str, timeout_ms: float):
     """Arm Playwright's download listener, click, and return the Download -
     or None if nothing had started by timeout_ms (APKMirror sometimes shows
-    an interstitial "confirm" page instead of downloading directly)."""
+    an interstitial "confirm" page instead of downloading directly).
+
+    force=True: APKMirror's ad slots sometimes serve a creative that mimics
+    a download button (a green "Download Extension" box with its own "2
+    Easy Steps..." caption) positioned on or right next to the real one -
+    seen on both warp and proton-vpn. Playwright's normal click() refuses
+    to click an element that something else is on top of / intercepting
+    pointer events for, and just times out waiting for that to clear, which
+    an ad obviously never does - so the download never starts, and this
+    keeps failing across every retry since the same ad tends to keep
+    showing. `selector` is specific enough to only ever match APKMirror's
+    own real button, never the ad, so force=True (skip the
+    visible-and-unobstructed wait, click the resolved element directly) is
+    safe here - it does not change *what* gets clicked, only stops an
+    unrelated overlay from blocking it.
+    """
     try:
         async with page.expect_download(timeout=timeout_ms) as download_info:
-            await page.click(selector)
+            await page.click(selector, force=True)
         return await download_info.value
     except PlaywrightTimeoutError:
         return None
