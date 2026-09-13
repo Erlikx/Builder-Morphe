@@ -7,7 +7,6 @@ import time
 from pathlib import Path
 from typing import Any
 
-from camoufox import DefaultAddons
 from camoufox.async_api import AsyncCamoufox
 from playwright.async_api import Page
 from playwright.async_api import TimeoutError as PlaywrightTimeoutError
@@ -70,12 +69,6 @@ _CHALLENGE_MARKERS = [
     "cf-browser-verification",
     "cf_chl_",
     "ddos protection by cloudflare",
-    # Newer Cloudflare "Managed Challenge" / Turnstile interstitial. Its
-    # "Verify you are human" checkbox text lives inside a cross-origin
-    # iframe, so it never shows up in document.body.innerText - only the
-    # outer wrapper text below does. Without these, this page type is
-    # invisible to _is_challenge_page() and gets treated as a normal
-    # (button-less) page instead of a challenge to cool down and retry.
     "performing security verification",
     "verifies you are not a bot",
 ]
@@ -100,23 +93,7 @@ async def _jitter_sleep(base: float, spread: float = 0.6) -> None:
 async def _start_browser():
     log.info("Launching Camoufox (Firefox)...")
     stack = contextlib.AsyncExitStack()
-    # humanize=True adds realistic, non-linear cursor movement on clicks;
-    # everything else about the Firefox fingerprint (UA, navigator
-    # properties, ...) is generated and kept internally consistent by
-    # Camoufox itself, so there's no manual UA-building step here anymore.
-    #
-    # exclude_addons=[UBO]: Camoufox bundles uBlock Origin by default. On
-    # APKMirror that backfires - it blocks the ad slots on the variant
-    # page, APKMirror's own ad-blocker check notices and swaps in a
-    # "Whoa there! It looks like you're using an ad blocker, wait 15 more
-    # sec" panel instead of the real download link, and the click/`#download-link`
-    # logic below (which expects the normal fast confirm flow) never finds
-    # anything to click. Dropping the bundled adblocker avoids tripping
-    # that wall in the first place, and also removes one more network
-    # fetch (the addon download) from browser startup.
-    browser = await stack.enter_async_context(
-        AsyncCamoufox(headless=True, humanize=True, exclude_addons=[DefaultAddons.UBO])
-    )
+    browser = await stack.enter_async_context(AsyncCamoufox(headless=True, humanize=True))
     return stack, browser
 
 
@@ -453,25 +430,10 @@ async def _extract_variant_url(page: Page, force_build: str | None, app_name: st
 async def _click_and_download(page: Page, selector: str, timeout_ms: float):
     """Arm Playwright's download listener, click, and return the Download -
     or None if nothing had started by timeout_ms (APKMirror sometimes shows
-    an interstitial "confirm" page instead of downloading directly).
-
-    force=True: APKMirror's ad slots sometimes serve a creative that mimics
-    a download button (a green "Download Extension" box with its own "2
-    Easy Steps..." caption) positioned on or right next to the real one -
-    seen on both warp and proton-vpn. Playwright's normal click() refuses
-    to click an element that something else is on top of / intercepting
-    pointer events for, and just times out waiting for that to clear, which
-    an ad obviously never does - so the download never starts, and this
-    keeps failing across every retry since the same ad tends to keep
-    showing. `selector` is specific enough to only ever match APKMirror's
-    own real button, never the ad, so force=True (skip the
-    visible-and-unobstructed wait, click the resolved element directly) is
-    safe here - it does not change *what* gets clicked, only stops an
-    unrelated overlay from blocking it.
-    """
+    an interstitial "confirm" page instead of downloading directly)."""
     try:
         async with page.expect_download(timeout=timeout_ms) as download_info:
-            await page.click(selector, force=True)
+            await page.click(selector)
         return await download_info.value
     except PlaywrightTimeoutError:
         return None
