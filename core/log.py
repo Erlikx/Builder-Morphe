@@ -26,6 +26,13 @@ for _name, _color, _icon in [
 
 logger.level("INFO", color="<blue>", icon="ℹ️")
 logger.level("SUCCESS", color="<bold><green>", icon="✅")
+# Sits below WARNING (30) on purpose: retries, cooldowns, and other
+# expected/self-recovering conditions (see notice() below) still show up
+# yellow in the terminal, but - unlike warn() - never reach the
+# _github_annotation sink further down, since that sink is filtered to
+# level="WARNING" and up. Those aren't things a maintainer needs to act on;
+# genuine misconfiguration/failure warnings should keep using warn().
+logger.level("NOTICE", no=25, color="<yellow>", icon="🔁")
 logger.level("WARNING", color="<yellow>", icon="⚠️")
 logger.level("ERROR", color="<bold><red>", icon="❌")
 
@@ -105,6 +112,13 @@ def warn(msg: str) -> None:
     logger.warning(msg)
 
 
+def notice(msg: str) -> None:
+    """Like warn(), but for expected/self-recovering conditions (a retry,
+    a cooldown, "proceeding anyway") that shouldn't show up as a GitHub
+    Actions Annotation - see the NOTICE level comment above."""
+    logger.log("NOTICE", msg)
+
+
 def wait(msg: str) -> None:
     logger.log("WAIT", msg)
 
@@ -137,7 +151,11 @@ _LEADING_ICON_RE = re.compile(r"^[^A-Za-z]+")
 
 _PATCH_LINE_RULES: list[tuple[re.Pattern, str]] = [
     (re.compile(r"^ERROR", re.IGNORECASE), "ERROR"),
-    (re.compile(r"^WARN", re.IGNORECASE), "WARNING"),
+    # NOTICE, not WARNING: morphe-desktop emits plenty of these (e.g. "No
+    # AndroidManifest.xml in <split>") that are routine, expected noise for
+    # split/bundle APKs, not something a maintainer needs an Annotation
+    # for - see the NOTICE level comment near the top of this file.
+    (re.compile(r"^WARN", re.IGNORECASE), "NOTICE"),
     (re.compile(r"applying \d+ patches", re.IGNORECASE), "PATCH"),
     (re.compile(r"executing patches", re.IGNORECASE), "PATCH"),
     (re.compile(r"^INFO:\s*Applied:", re.IGNORECASE), "APPLIED"),
