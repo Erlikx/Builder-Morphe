@@ -16,7 +16,7 @@ import apprise
 from . import log
 from .settings import settings
 
-_BODY_LIMIT = 2000  # Discord's cap is the tightest of the services we default to
+_BODY_LIMIT = 2000
 
 
 def _truncate(text: str, limit: int) -> str:
