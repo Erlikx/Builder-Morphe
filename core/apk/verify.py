@@ -55,9 +55,9 @@ def _cert_der_bytes(cert) -> bytes:
     happens to use internally."""
     if isinstance(cert, bytes | bytearray):
         return bytes(cert)
-    if hasattr(cert, "public_bytes"):  # cryptography.x509.Certificate (current androguard)
+    if hasattr(cert, "public_bytes"):
         return cert.public_bytes(Encoding.DER)
-    if hasattr(cert, "dump"):  # asn1crypto.x509.Certificate (older androguard)
+    if hasattr(cert, "dump"):
         return cert.dump()
     raise TypeError(f"Unrecognized certificate object from androguard: {type(cert)!r}")
 
