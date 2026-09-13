@@ -96,7 +96,7 @@ jobs:
           persist-credentials: true
 
       - name: Show runner IP
-        run: curl -s https://api.ipify.org
+        run: curl -s --max-time 10 https://api.ipify.org || true
 
       - name: Jitter delay before browser starts
         run: |
@@ -117,8 +117,6 @@ jobs:
 
       - name: Install Firefox runtime libraries
         run: |
-          # Libs Camoufox's patched Firefox build needs on a bare
-          # ubuntu-latest runner (equivalent to the old Chrome apt step).
           sudo apt-get update
           sudo apt-get install -y libgtk-3-0 libx11-xcb1 libasound2t64 || sudo apt-get install -y libgtk-3-0 libx11-xcb1 libasound2
 
@@ -129,21 +127,36 @@ jobs:
 
       - name: Fetch Camoufox browser binary
         run: |
-          # `camoufox fetch` returning 0 and `camoufox path` printing a
-          # path that exists are NOT proof the browser actually works -
-          # up to 30 matrix jobs can be fetching the same large Firefox
-          # archive from the same CDN at nearly the same moment, and an
-          # interrupted/truncated download can still leave a non-empty
-          # file behind that `[ -e ... ]` happily accepts. That gap is
-          # exactly what let "official/stable is not installed" reach
-          # main.py minutes later instead of failing here. A real launch
-          # is the only check that can't be fooled by a partial install,
-          # so do that instead, and wipe + re-fetch from scratch on
-          # failure rather than layering a retry on top of a possibly
-          # corrupted cache.
           ok=0
           for i in 1 2 3; do
-            python3 -m camoufox fetch || true
+            python3 -m camoufox fetch 2>&1 | python3 -c '
+          import re
+          import sys
+
+          pattern = re.compile(r"^(?P<prefix>.*?)\s*:?\s*(?P<pct>[0-9]{1,3})%\s*$")
+          pending = None
+          pending_key = None
+
+          def flush():
+              global pending
+              if pending is not None:
+                  print(pending, flush=True)
+                  pending = None
+
+          for raw_line in sys.stdin:
+              text = raw_line.rstrip("\n")
+              match = pattern.match(text)
+              if match:
+                  key = match.group("prefix")
+                  if key != pending_key:
+                      flush()
+                  pending = text
+                  pending_key = key
+              else:
+                  flush()
+                  print(text, flush=True)
+          flush()
+          ' || true
 
             if python3 -c '
           import asyncio
