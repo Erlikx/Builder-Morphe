@@ -66,7 +66,7 @@ def patch_apk(
         text=True,
         bufsize=1,
     )
-    assert process.stdout is not None  # guaranteed by stdout=subprocess.PIPE above
+    assert process.stdout is not None
 
     output_lines = []
     for line in process.stdout:
