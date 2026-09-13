@@ -239,7 +239,7 @@ async def _goto(
             stop=stop_after_attempt(challenge_retries + 1) | _BudgetExceeded(deadline),
             wait=_ChallengeCooldownWait(),
             retry=retry_if_exception_type(_ChallengePresent),
-            before_sleep=lambda rs: log.warn(
+            before_sleep=lambda rs: log.notice(
                 f"Cloudflare challenge detected ({label}), cooling down "
                 f"{(rs.next_action.sleep if rs.next_action else 0):.0f}s before retrying "
                 f"(challenge #{_challenge_hits} this run)..."
@@ -252,7 +252,7 @@ async def _goto(
                 if await _is_challenge_page(page):
                     raise _ChallengePresent(_register_challenge())
     except _ChallengePresent:
-        log.warn(f"Cloudflare challenge still present ({label}), proceeding anyway...")
+        log.notice(f"Cloudflare challenge still present ({label}), proceeding anyway...")
         await _save_diagnostic_screenshot(page, f"cloudflare-{label}")
 
 
@@ -462,21 +462,54 @@ async def _click_and_download(page: Page, selector: str, timeout_ms: float):
         return None
 
 
-async def _attempt_download(page: Page):
-    download = await _click_and_download(page, "a.downloadButton", timeout_ms=20_000)
+async def _click_and_maybe_pop_up(page: Page, selector: str, timeout_ms: float) -> tuple[Any, Page]:
+    """Same as _click_and_download, but also covers APKMirror opening the
+    click's target in a brand-new tab instead of navigating/downloading in
+    the current one. This isn't app-specific - any release can hit it - but
+    it was first seen on APK *bundle* releases (e.g. notesnook): the
+    "Download APK Bundle" button's confirm flow shows up in a fresh tab, so
+    page.expect_download() on the original page never fires and the click
+    looks like a silent no-op - a diagnostic screenshot taken of `page` at
+    that point just shows the untouched variant page, because we were never
+    looking at the tab that actually moved.
+
+    Returns (Download-or-None, page-to-keep-using-from-here-on): the popup
+    if one appeared, otherwise the same `page` that was passed in - the
+    caller should keep using whatever page this returns for anything
+    downstream (the "#download-link" fallback check, error screenshots).
+    """
+    context = page.context
+    pages_before = set(context.pages)
+
+    download = await _click_and_download(page, selector, timeout_ms)
+    if download is not None:
+        return download, page
+
+    new_pages = [p for p in context.pages if p not in pages_before]
+    if not new_pages:
+        return None, page
+
+    popup = new_pages[-1]
+    with contextlib.suppress(Exception):
+        await popup.wait_for_load_state("domcontentloaded", timeout=timeout_ms)
+    return None, popup
+
+
+async def _attempt_download(page: Page) -> tuple[Any, Page]:
+    download, page = await _click_and_maybe_pop_up(page, "a.downloadButton", timeout_ms=20_000)
 
     if download is None:
-        log.warn("Direct download did not start, waiting for confirm page...")
+        log.notice("Direct download did not start, waiting for confirm page...")
         await _jitter_sleep(1.5)
 
         if await page.locator("#download-link").count() > 0:
             log.browser("Clicking final download link...")
-            download = await _click_and_download(page, "#download-link", timeout_ms=60_000)
+            download, page = await _click_and_maybe_pop_up(page, "#download-link", timeout_ms=60_000)
 
     if download is None:
         raise _ChallengePresent(_register_challenge())
 
-    return download
+    return download, page
 
 
 async def download_apk(version: str, app_name: str = "youtube", force_build: str | None = None) -> str:
@@ -503,7 +536,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
                 variant_url = await _extract_variant_url(page, force_build, app_name)
                 if variant_url:
                     break
-                log.warn(f"No matching row found on page, retrying ({attempt + 1}/4)...")
+                log.notice(f"No matching row found on page, retrying ({attempt + 1}/4)...")
 
             if not variant_url:
                 await _dump_variant_rows_for_debug(page)
@@ -523,7 +556,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
                 stop=stop_after_attempt(4),
                 wait=_ChallengeCooldownWait(),
                 retry=retry_if_exception_type(_ChallengePresent),
-                before_sleep=lambda rs: log.warn(
+                before_sleep=lambda rs: log.notice(
                     f"Download click had no effect, cooling down "
                     f"{(rs.next_action.sleep if rs.next_action else 0):.0f}s before retrying "
                     f"(attempt #{_challenge_hits} this run)..."
@@ -534,7 +567,7 @@ async def download_apk(version: str, app_name: str = "youtube", force_build: str
                     if retry_attempt.retry_state.attempt_number > 1:
                         await _goto(page, variant_url, wait=1.2, label="variant-page-retry")
                         log.browser("Clicking main download button...")
-                    download = await _attempt_download(page)
+                    download, page = await _attempt_download(page)
         except _ChallengePresent:
             pass
 
@@ -601,7 +634,7 @@ async def get_latest_listing(app_name: str) -> dict | None:
                 candidates = []
             if candidates:
                 break
-            log.warn(f"No link found on listing page, retrying ({attempt + 1}/4)...")
+            log.notice(f"No link found on listing page, retrying ({attempt + 1}/4)...")
 
         if not candidates:
             await _save_diagnostic_screenshot(page, f"no-listing-{app_name}")
