@@ -5,9 +5,6 @@ from core import retry
 
 
 def test_incrementing_and_exponential_return_wait_strategies():
-    # The exact backoff numbers are tenacity's own well-tested formulas, so
-    # this just checks our helpers hand tenacity something it can call
-    # directly as a `wait=` strategy.
     assert callable(retry.incrementing(start=1.0, increment=1.0, max=5.0))
     assert callable(retry.exponential_with_jitter(max=5.0))
     assert callable(retry.incrementing(start=1.0, increment=1.0, jitter=2.0))
@@ -35,7 +32,7 @@ class _FakeRetryState:
 
 def test_before_sleep_logs_label_attempt_error_and_delay(monkeypatch):
     messages = []
-    monkeypatch.setattr("core.retry.log.warn", messages.append)
+    monkeypatch.setattr("core.retry.log.notice", messages.append)
 
     hook = retry.before_sleep("Some flaky operation")
     hook(_FakeRetryState(attempt_number=2, exc=RuntimeError("boom"), sleep=3.25))
