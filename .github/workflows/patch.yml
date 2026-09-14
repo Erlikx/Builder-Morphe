@@ -126,6 +126,8 @@ jobs:
           pip install -r requirements-lock.txt
 
       - name: Fetch Camoufox browser binary
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           ok=0
           for i in 1 2 3; do
@@ -143,8 +145,8 @@ jobs:
                   print(pending, flush=True)
                   pending = None
 
-          for raw_line in sys.stdin:
-              text = raw_line.rstrip("\n")
+          def handle(text):
+              global pending, pending_key
               match = pattern.match(text)
               if match:
                   key = match.group("prefix")
@@ -155,6 +157,22 @@ jobs:
               else:
                   flush()
                   print(text, flush=True)
+
+          buf = ""
+          while True:
+              chunk = sys.stdin.read(4096)
+              if not chunk:
+                  break
+              buf += chunk
+              while True:
+                  m = re.search(r"[\r\n]", buf)
+                  if not m:
+                      break
+                  line, buf = buf[: m.start()], buf[m.end() :]
+                  if line:
+                      handle(line)
+          if buf:
+              handle(buf)
           flush()
           ' || true
 
