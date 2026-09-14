@@ -431,9 +431,16 @@ async def _click_and_download(page: Page, selector: str, timeout_ms: float):
     """Arm Playwright's download listener, click, and return the Download -
     or None if nothing had started by timeout_ms (APKMirror sometimes shows
     an interstitial "confirm" page instead of downloading directly)."""
+    href = None
+    with contextlib.suppress(Exception):
+        href = await page.get_attribute(selector, "href")
+
     try:
         async with page.expect_download(timeout=timeout_ms) as download_info:
-            await page.click(selector)
+            if href and not href.startswith(("javascript:", "#")):
+                await page.goto(href)
+            else:
+                await page.click(selector)
         return await download_info.value
     except PlaywrightTimeoutError:
         return None
