@@ -6,10 +6,11 @@ import re
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin
 
 from camoufox.async_api import AsyncCamoufox
+from playwright.async_api import Error as PlaywrightError
 from playwright.async_api import Page
-from playwright.async_api import TimeoutError as PlaywrightTimeoutError
 from tenacity import AsyncRetrying, retry, retry_if_exception_type, stop_after_attempt
 from tenacity.stop import stop_base
 from tenacity.wait import wait_base
@@ -438,11 +439,11 @@ async def _click_and_download(page: Page, selector: str, timeout_ms: float):
     try:
         async with page.expect_download(timeout=timeout_ms) as download_info:
             if href and not href.startswith(("javascript:", "#")):
-                await page.goto(href)
+                await page.goto(urljoin(page.url, href))
             else:
                 await page.click(selector)
         return await download_info.value
-    except PlaywrightTimeoutError:
+    except PlaywrightError:
         return None
 
 
