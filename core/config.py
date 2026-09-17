@@ -122,6 +122,7 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "name": "gboard",
         "patch_source": "jasonwu",
         "arch": "arm64-v8a",
+        "force_version": "18.0.3.954559732",
         "icon": "https://cdn.simpleicons.org/google/4285F4",
         "exclude": [
             "Zhuyin Bottom Row Key Sizes",
