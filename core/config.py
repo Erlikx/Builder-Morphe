@@ -65,6 +65,7 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "arch": "arm64-v8a",
         "icon": "https://cdn.simpleicons.org/youtube/FF0000",
         "exclude": [],
+        "enable": ["Original"],
     },
     "youtube-music": {
         "pkg": "com.google.android.apps.youtube.music",
