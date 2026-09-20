@@ -17,6 +17,7 @@ def patch_apk(
     exclude: list[str] | None = None,
     enable: list[str] | None = None,
     arch: str = "arm64-v8a",
+    options: dict[str, str] | None = None,
 ) -> str:
     log.patch(f"Patching APK & stripping unused architectures ({arch} only)...")
 
@@ -53,6 +54,9 @@ def patch_apk(
 
     for p in enable or []:
         cmd += ["--enable", p]
+
+    for key, value in (options or {}).items():
+        cmd += ["-O", f"{key}={value}"]
 
     cmd.append(apk)
 
