@@ -16,8 +16,8 @@ def patch_apk(
     apk: str,
     exclude: list[str] | None = None,
     enable: list[str] | None = None,
-    arch: str = "arm64-v8a",
     options: dict[str, str] | None = None,
+    arch: str = "arm64-v8a",
 ) -> str:
     log.patch(f"Patching APK & stripping unused architectures ({arch} only)...")
 
@@ -49,14 +49,14 @@ def patch_apk(
     else:
         log.warn("Custom keystore credentials missing or file not found. Falling back to default Morphe testkey.")
 
+    for key, value in (options or {}).items():
+        cmd.append(f"-O{key}={value}")
+
     for p in exclude or []:
         cmd += ["--disable", p]
 
     for p in enable or []:
         cmd += ["--enable", p]
-
-    for key, value in (options or {}).items():
-        cmd += ["-O", f"{key}={value}"]
 
     cmd.append(apk)
 
