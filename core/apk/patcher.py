@@ -83,8 +83,11 @@ def patch_apk(
     else:
         log.warn("Custom keystore credentials missing or file not found. Falling back to default Morphe testkey.")
 
-    if options:
-        _log_patch_options(desktop, patches, list(options), None)
+    # Log the real option keys of every patch we touch (options and enabled ones),
+    # so a renamed/removed key shows up in the CI log instead of being ignored.
+    diag_names = list(dict.fromkeys([*(options or {}), *(enable or [])]))
+    if diag_names:
+        _log_patch_options(desktop, patches, diag_names, None)
 
     option_enabled_patches: set[str] = set()
     for patch_name, opts in (options or {}).items():
