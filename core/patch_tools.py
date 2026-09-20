@@ -1,3 +1,4 @@
+import re
 from collections.abc import Callable
 from pathlib import Path
 
@@ -7,6 +8,42 @@ from . import log
 from . import retry as retry_conf
 from .http import new_session
 from .settings import settings
+
+
+_TAG_RE = re.compile(r"^v?(\d+(?:\.\d+)*)(?:-([0-9A-Za-z.\-]+))?")
+
+
+def release_sort_key(release: dict) -> tuple:
+    """Sort key ordering GitHub releases by semantic version, highest last.
+
+    GitHub's /releases endpoint is ordered by creation date, not by version,
+    so ``data[0]`` can be an older tag (e.g. dev.9 listed before dev.11).
+    Follows semver precedence: a stable release outranks its own pre-releases
+    (1.44.0 > 1.44.0-dev.11) and pre-release parts compare numerically
+    (dev.11 > dev.9). Drafts and unparsable tags sort lowest.
+    """
+    if release.get("draft"):
+        return (0, (), 0, ())
+
+    match = _TAG_RE.match(str(release.get("tag_name") or ""))
+    if not match:
+        return (0, (), 0, ())
+
+    core = tuple(int(p) for p in match.group(1).split("."))
+    pre = match.group(2)
+    if pre is None:
+        return (1, core, 1, ())
+
+    idents = tuple((0, int(i), "") if i.isdigit() else (1, 0, i) for i in pre.split("."))
+    return (1, core, 0, idents)
+
+
+def pick_highest_release(releases: list[dict]) -> dict:
+    """Return the release with the highest semantic version (drafts ignored)."""
+    published = [r for r in releases if not r.get("draft")]
+    if not published:
+        raise RuntimeError("No published releases found")
+    return max(published, key=release_sort_key)
 
 
 async def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) -> dict:
@@ -40,7 +77,7 @@ async def fetch_latest_release(owner: str, repo: str, prerelease: bool = False) 
             if prerelease:
                 if not isinstance(data, list) or not data:
                     raise RuntimeError("No releases found")
-                return data[0]
+                return pick_highest_release(data)
 
             return data
 
@@ -93,7 +130,7 @@ async def download_latest_github_asset(
     if not asset:
         raise RuntimeError("Matching asset not found")
 
-    log.info(f"Selected: {asset['name']}")
+    log.info(f"Selected: {asset['name']} (tag {release.get('tag_name')}, prerelease={bool(release.get('prerelease'))})")
 
     out_path = Path(asset["name"])
 
