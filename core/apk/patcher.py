@@ -32,7 +32,12 @@ def _log_patch_options(desktop: str, patches: list[str], patch_names: list[str],
     for name in patch_names:
         for i, line in enumerate(lines):
             if name.lower() in line.lower():
-                block = [line] + lines[i + 1 : i + 30]
+                # Print until the next "Name:" entry so no option is cut off.
+                block = [line]
+                for nxt in lines[i + 1 :]:
+                    if nxt.startswith("Name:"):
+                        break
+                    block.append(nxt)
                 log.step(f"[diag] options for '{name}':\n" + "\n".join(block))
                 break
         else:
