@@ -83,6 +83,7 @@ async def process_app(app_key: str, desktop: str, patches: list[str]) -> dict | 
         exclude=config.get("exclude"),
         enable=config.get("enable"),
         arch=config["arch"],
+        options=config.get("options"),
     )
 
     if not Path(patched_apk).exists():
