@@ -12,9 +12,9 @@ class _AppConfigRequired(TypedDict):
 class AppConfig(_AppConfigRequired, total=False):
     exclude: list[str]
     enable: list[str]
+    options: dict[str, str]
     force_version: str
     force_build: str
-    options: dict[str, str]
 
 
 DISPLAY_NAMES: dict[str, str] = {
@@ -66,11 +66,7 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "arch": "arm64-v8a",
         "icon": "https://cdn.simpleicons.org/youtube/FF0000",
         "exclude": [],
-        # Yerlesik seceneklerden secim icin (CLI'a -O "Patch.Secenek=Deger" olarak gecer):
-        "options": {
-            # "Custom branding.App name": "YouTube Özel",      # istege bagli
-            # "Custom branding.App icon": "Original",          # Original / Black / Automatic
-        },
+        "options": {"appIcon": "original"},
     },
     "youtube-music": {
         "pkg": "com.google.android.apps.youtube.music",
