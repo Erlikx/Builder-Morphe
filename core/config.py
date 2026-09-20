@@ -66,6 +66,7 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "arch": "arm64-v8a",
         "icon": "https://cdn.simpleicons.org/youtube/FF0000",
         "exclude": [],
+        "enable": ["Clone app"],
         "options": {"Custom branding": {"customName": "YouTube", "appIcon": "original"}},
     },
     "youtube-music": {
