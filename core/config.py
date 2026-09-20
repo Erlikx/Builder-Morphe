@@ -67,7 +67,10 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "icon": "https://cdn.simpleicons.org/youtube/FF0000",
         "exclude": [],
         "enable": ["Clone app"],
-        "options": {"Custom branding": {"customName": "YouTube", "appIcon": "original"}},
+        "options": {
+            "Custom branding": {"customName": "YouTube", "appIcon": "original"},
+            "Clone app": {"packageName": "com.google.android.youtube.erlik"},
+        },
     },
     "youtube-music": {
         "pkg": "com.google.android.apps.youtube.music",
