@@ -36,7 +36,7 @@ MarkupSafe==3.0.3
 matplotlib-inline==0.2.2
 mdurl==0.1.2
 mutf8==1.1.0
-networkx==3.6.1
+networkx==3.7
 numpy==2.5.3
 oauthlib==3.3.1
 orjson==3.12.0
@@ -55,7 +55,7 @@ pydantic_core==2.46.5
 pydot==4.0.1
 pyee==13.0.1
 Pygments==2.21.0
-pyparsing==3.3.2
+pyparsing==3.3.3
 PySocks==1.7.1
 python-dotenv==1.2.3
 PyYAML==6.0.3
