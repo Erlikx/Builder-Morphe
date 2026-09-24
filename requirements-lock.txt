@@ -75,5 +75,5 @@ typing_extensions==4.16.0
 ua-parser==1.0.2
 ua-parser-builtins==202606
 urllib3==2.8.0
-wcwidth==0.8.4
+wcwidth==0.9.1
 xmod==1.10.0
