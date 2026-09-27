@@ -112,7 +112,7 @@ APPS_CONFIG: dict[str, AppConfig] = {
         "name": "twitter",
         "patch_source": ["piko-newx", "morphe"],
         "arch": "arm64-v8a",
-        "force_version": "X 12.29.1-prod.01",
+        "force_version": "12.29.1-prod.01",
         "enable": ["Disable Play Store updates"],
         "icon": "https://cdn.simpleicons.org/x/000000",
     },
