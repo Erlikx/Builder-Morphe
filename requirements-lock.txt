@@ -11,7 +11,7 @@ browserforge==1.2.4
 camoufox==0.5.6
 certifi==2026.7.22
 cffi==2.1.1
-charset-normalizer==3.5.1
+charset-normalizer==3.5.2
 click==8.5.0
 colorama==0.4.6
 cryptography==50.0.1
@@ -38,11 +38,11 @@ mdurl==0.1.2
 mutf8==1.1.0
 networkx==3.7
 numpy==2.5.3
-oauthlib==3.3.1
+oauthlib==4.0.0
 orjson==3.12.0
 parso==0.8.7
 pexpect==4.9.0
-platformdirs==4.12.0
+platformdirs==4.12.2
 playwright==1.61.0
 prompt_toolkit==3.0.53
 psutil==7.2.2
